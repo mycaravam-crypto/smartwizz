@@ -38,12 +38,15 @@ public static class Program
 
         try
         {
-            var cfg = Config.Load(opt.ConfigPath, Environment.GetEnvironmentVariable);
-            var files = GitDiff.Parse(GitDiff.Run(opt.Repo, opt.Base!, opt.Head, cfg.Review.ContextLines));
+            Config.LoadDotEnv(".env");
+            Config cfg = Config.Load(opt.ConfigPath, Environment.GetEnvironmentVariable);
+            List<FileDiff> files = GitDiff.Parse(await GitDiff.RunAsync(opt.Repo, opt.Base!, opt.Head, cfg.Review.ContextLines, CancellationToken.None));
 
             using var http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan }; // per-request timeouts instead
-            var provider = new Provider(http, cfg.Provider, Environment.GetEnvironmentVariable("SMARTWIZZ_API_KEY"));
-            var result = await Review.RunAsync(files, cfg.Review, provider, LoadPrompt(), CancellationToken.None);
+            Provider provider = new(http, cfg.Provider, Environment.GetEnvironmentVariable("SMARTWIZZ_API_KEY"));
+            ReviewResult result = await Review.RunAsync(files, cfg.Review, provider,
+                Review.SystemPrompt(LoadPrompt(), cfg.Review.Guidelines is { } g ? await File.ReadAllTextAsync(g) : null),
+                CancellationToken.None);
 
             Report.WriteConsole(result, Console.Out);
             if (opt.JsonPath is not null)
@@ -69,8 +72,10 @@ public static class Program
 
     static string LoadPrompt()
     {
-        using var s = typeof(Program).Assembly.GetManifestResourceStream("code-review.md")!;
-        return new StreamReader(s).ReadToEnd();
+        using Stream stream = typeof(Program).Assembly.GetManifestResourceStream("code-review.md")
+            ?? throw new InvalidOperationException("embedded prompt code-review.md is missing from the build");
+        using StreamReader reader = new(stream);
+        return reader.ReadToEnd();
     }
 }
 

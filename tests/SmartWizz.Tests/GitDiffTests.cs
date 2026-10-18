@@ -1,4 +1,6 @@
-using SmartWizz;
+
+
+namespace SmartWizz.Tests;
 
 public class GitDiffTests
 {

@@ -3,3 +3,6 @@ obj/
 *.user
 .vs/
 smartwizz-report.json
+.env
+.env.*
+!.env.example

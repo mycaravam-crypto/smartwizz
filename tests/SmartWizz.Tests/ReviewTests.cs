@@ -1,4 +1,6 @@
-using SmartWizz;
+
+
+namespace SmartWizz.Tests;
 
 public class ReviewTests
 {
@@ -99,12 +101,13 @@ public class ReviewTests
         Assert.Single(result.Findings);
         Assert.Equal(["deleted", "binary", "excluded"], result.SkippedFiles.Select(s => s.Reason));
         Assert.Contains("BEGIN-DIFF-", stub.Requests[0].Body);
-        Assert.DoesNotContain("package-lock", stub.Requests[0].Body);
+        Assert.Contains("- web/package-lock.json\\n", stub.Requests[0].Body); // listed for context (JSON-escaped newline)...
+        Assert.DoesNotContain("File: web/package-lock.json", stub.Requests[0].Body); // ...but not sent
     }
 
     [Fact]
     public void User_message_nonce_differs_per_call() =>
-        Assert.NotEqual(Review.BuildUserMessage([]), Review.BuildUserMessage([]));
+        Assert.NotEqual(Review.BuildUserMessage([], []), Review.BuildUserMessage([], []));
 
     [Fact]
     public void Options_require_base_and_validate_severity()
@@ -114,5 +117,20 @@ public class ReviewTests
         Assert.Throws<SmartWizzException>(() => Options.Parse(["--base"]));
         var o = Options.Parse(["--base", "origin/main", "--fail-on", "HIGH", "--publish"]);
         Assert.Equal(("origin/main", Severity.High, true), (o.Base, o.FailOn, o.Publish));
+    }
+}
+
+public class SanitizeTests
+{
+    [Fact]
+    public void Control_characters_are_stripped_from_model_text()
+    {
+        var files = GitDiff.Parse(GitDiffTests.Sample).ToDictionary(f => f.Path);
+        const string reply = """
+            {"findings":[{"ruleId":"r\u0007","severity":"low","title":"a\u001b[31mred\r\nb","message":"x\r\ny\u0000",
+             "filePath":"src/Calc.cs","startLine":12,"confidence":0.9}]}
+            """;
+        var f = Assert.Single(Review.Parse(reply, files, 0.5, []));
+        Assert.Equal(("r", "a[31mredb", "x\ny"), (f.RuleId, f.Title, f.Message));
     }
 }

@@ -26,6 +26,14 @@ public sealed class Config
         else
             throw new SmartWizzException($"config file not found: {path}");
 
+        // Relative to the config file, so CI resolves it inside the trusted SmartWizz checkout, not the PR.
+        if (cfg.Review.Guidelines is { } g)
+        {
+            cfg.Review.Guidelines = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path ?? "smartwizz.json"))!, g);
+            if (!File.Exists(cfg.Review.Guidelines))
+                throw new SmartWizzException($"guidelines file not found: {cfg.Review.Guidelines}");
+        }
+
         var az = cfg.AzureDevOps;
         az.CollectionUri ??= env("SYSTEM_COLLECTIONURI");
         az.Project ??= env("SYSTEM_TEAMPROJECT");
@@ -33,6 +41,22 @@ public sealed class Config
         if (az.PullRequestId is null && int.TryParse(env("SYSTEM_PULLREQUEST_PULLREQUESTID"), out var pr))
             az.PullRequestId = pr;
         return cfg;
+    }
+
+    // Local convenience for secrets (KEY=value lines). Never overrides variables already set, so CI secrets win.
+    public static void LoadDotEnv(string path)
+    {
+        if (!File.Exists(path)) return;
+        foreach (var raw in File.ReadAllLines(path))
+        {
+            var line = raw.Trim();
+            var eq = line.IndexOf('=');
+            if (line.StartsWith('#') || eq <= 0) continue;
+            var key = line[..eq].Trim();
+            var value = line[(eq + 1)..].Trim().Trim('"', '\'');
+            if (Environment.GetEnvironmentVariable(key) is null)
+                Environment.SetEnvironmentVariable(key, value);
+        }
     }
 
     static Config Read(string path)
@@ -43,7 +67,7 @@ public sealed class Config
         }
         catch (JsonException e)
         {
-            throw new SmartWizzException($"invalid config {path}: {e.Message}");
+            throw new SmartWizzException($"invalid config {path}: {e.Message}", e);
         }
     }
 }
@@ -62,6 +86,8 @@ public sealed class ReviewConfig
     public int ContextLines { get; set; } = 10;
     public int MaxCharsPerRequest { get; set; } = 60_000;
     public double MinConfidence { get; set; } = 0.5;
+    // Optional markdown engineering standard checked in addition to bugs/security/tests.
+    public string? Guidelines { get; set; }
     public string[] Exclude { get; set; } =
     [
         "*.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "packages.lock.json",
@@ -80,4 +106,4 @@ public sealed class AzureDevOpsConfig
 }
 
 // Expected execution failures: printed without a stack trace, exit code 2.
-public sealed class SmartWizzException(string message) : Exception(message);
+public sealed class SmartWizzException(string message, Exception? innerException = null) : Exception(message, innerException);

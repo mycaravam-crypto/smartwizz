@@ -18,7 +18,7 @@ public sealed class FileDiff
 
 public static partial class GitDiff
 {
-    public static string Run(string repo, string baseRef, string headRef, int contextLines)
+    public static async Task<string> RunAsync(string repo, string baseRef, string headRef, int contextLines, CancellationToken ct)
     {
         var psi = new ProcessStartInfo("git")
         {
@@ -35,11 +35,12 @@ public static partial class GitDiff
             psi.ArgumentList.Add(a);
 
         using var p = Process.Start(psi) ?? throw new SmartWizzException("failed to start git");
-        var stderr = p.StandardError.ReadToEndAsync();
-        var stdout = p.StandardOutput.ReadToEnd();
-        p.WaitForExit();
+        // Both streams drained concurrently so a full stderr pipe cannot block git.
+        Task<string> stderr = p.StandardError.ReadToEndAsync(ct);
+        string stdout = await p.StandardOutput.ReadToEndAsync(ct);
+        await p.WaitForExitAsync(ct);
         if (p.ExitCode != 0)
-            throw new SmartWizzException($"git diff failed ({p.ExitCode}): {stderr.Result.Trim()}");
+            throw new SmartWizzException($"git diff failed ({p.ExitCode}): {(await stderr).Trim()}");
         return stdout;
     }
 
@@ -114,6 +115,7 @@ public static partial class GitDiff
                                  || FileSystemName.MatchesSimpleExpression(p, name, ignoreCase: true));
     }
 
-    // ponytail: strips surrounding quotes only; git C-escapes (\t, \") in exotic paths are left as-is.
+    // Only surrounding quotes are removed: with core.quotePath=false git quotes just paths containing
+    // control characters or quotes, whose C-escapes are rare enough to leave undecoded.
     static string Unquote(string s) => s.Length >= 2 && s[0] == '"' && s[^1] == '"' ? s[1..^1] : s;
 }

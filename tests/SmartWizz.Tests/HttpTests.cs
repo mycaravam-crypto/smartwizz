@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text.Json;
-using SmartWizz;
+
+
+namespace SmartWizz.Tests;
 
 public class ProviderTests
 {
@@ -133,5 +135,133 @@ public class AzureDevOpsTests
             Assert.Equal(("https://tfs/", "FromFile", "R", 42), (az.CollectionUri, az.Project, az.RepositoryId, az.PullRequestId!.Value));
         }
         finally { File.Delete(path); }
+    }
+}
+
+public class DotEnvTests
+{
+    [Fact]
+    public void Loads_values_without_overriding_existing_environment()
+    {
+        var path = Path.GetTempFileName();
+        File.WriteAllText(path, "# comment\nSW_TEST_NEW=\"abc=1\"\nSW_TEST_SET=fromfile\nnot a pair\n");
+        Environment.SetEnvironmentVariable("SW_TEST_SET", "fromenv");
+        try
+        {
+            Config.LoadDotEnv(path);
+            Assert.Equal("abc=1", Environment.GetEnvironmentVariable("SW_TEST_NEW"));
+            Assert.Equal("fromenv", Environment.GetEnvironmentVariable("SW_TEST_SET"));
+        }
+        finally
+        {
+            File.Delete(path);
+            Environment.SetEnvironmentVariable("SW_TEST_NEW", null);
+            Environment.SetEnvironmentVariable("SW_TEST_SET", null);
+        }
+    }
+}
+
+public class GuidelinesTests
+{
+    [Fact]
+    public void System_prompt_appends_standard_only_when_configured()
+    {
+        Assert.Equal("base", Review.SystemPrompt("base", null));
+        var p = Review.SystemPrompt("base", "  - No magic numbers.\n");
+        Assert.StartsWith("base", p);
+        Assert.Contains("<standard>\n- No magic numbers.\n</standard>", p);
+        Assert.Contains("standard-<short-kebab-rule-name>", p);
+    }
+
+    [Fact]
+    public void Guidelines_path_resolves_relative_to_config_and_must_exist()
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            var cfgPath = Path.Combine(dir, "smartwizz.json");
+            File.WriteAllText(cfgPath, """{ "review": { "guidelines": "ENGINEERING_STANDARD.md" } }""");
+            Assert.Throws<SmartWizzException>(() => Config.Load(cfgPath, _ => null));
+
+            File.WriteAllText(Path.Combine(dir, "ENGINEERING_STANDARD.md"), "rules");
+            Assert.Equal(Path.Combine(dir, "ENGINEERING_STANDARD.md"), Config.Load(cfgPath, _ => null).Review.Guidelines);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+}
+
+public class ProviderDisposalTests
+{
+    sealed class FailingContent : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context) =>
+            throw new HttpRequestException("connection dropped");
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+    }
+
+    sealed class TrackedResponse : HttpResponseMessage
+    {
+        public bool Disposed { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            Disposed = true;
+            base.Dispose(disposing);
+        }
+    }
+
+    [Fact]
+    public async Task Response_is_disposed_when_reading_body_fails()
+    {
+        var response = new TrackedResponse { Content = new FailingContent() };
+        var provider = new Provider(new HttpClient(new StubHandler((_, _) => response)),
+            new ProviderConfig { Endpoint = "http://x", Model = "m" }, null);
+
+        await Assert.ThrowsAsync<SmartWizzException>(() => provider.CompleteAsync("s", "u", default));
+        Assert.True(response.Disposed);
+    }
+}
+
+public class ReportTests
+{
+    static ReviewResult Sample()
+    {
+        var r = new ReviewResult
+        {
+            ReviewedFiles = 2,
+            Findings = [new Finding("sql-injection", Severity.Critical, "Raw SQL", "Line one\nLine two", "db.cs", 4, 6, 0.9, "fp1")],
+        };
+        r.SkippedFiles.Add(new SkippedFile("a.lock", "excluded"));
+        r.Rejected.Add("x.cs:1: line not in diff");
+        return r;
+    }
+
+    [Fact]
+    public void Json_uses_camel_case_lowercase_severity_and_readable_text()
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(Report.ToJson(Sample()));
+        var f = doc.RootElement.GetProperty("findings")[0];
+        Assert.Equal(1, doc.RootElement.GetProperty("version").GetInt32());
+        Assert.Equal("critical", f.GetProperty("severity").GetString());
+        Assert.Equal(6, f.GetProperty("endLine").GetInt32());
+        Assert.Equal("excluded", doc.RootElement.GetProperty("skippedFiles")[0].GetProperty("reason").GetString());
+        Assert.Contains("a + b", Report.ToJson(new ReviewResult { Findings = [new Finding("r", Severity.Low, "a + b", "m", "f", 1, null, 1, "x")] }));
+    }
+
+    [Fact]
+    public void Console_lists_findings_with_location_and_indented_message()
+    {
+        var w = new StringWriter();
+        Report.WriteConsole(Sample(), w);
+        var text = w.ToString();
+        Assert.Contains("1 finding(s) in 2 reviewed file(s); 1 skipped file(s), 1 rejected finding(s)", text);
+        Assert.Contains("[CRITICAL] db.cs:4-6  Raw SQL", text);
+        Assert.Contains("    Line two", text);
+        Assert.Contains("Skipped: a.lock (excluded)", text);
     }
 }

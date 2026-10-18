@@ -13,8 +13,8 @@ It never runs PR code, never fixes, approves, or merges anything, and is report-
 ## Usage
 
 ```sh
-cp smartwizz.example.json smartwizz.json   # set provider.endpoint and provider.model
-export SMARTWIZZ_API_KEY=...               # omit for local servers without auth
+cp .env.example .env                       # put SMARTWIZZ_API_KEY in it (git-ignored)
+# smartwizz.json is preconfigured for Gemini (Google AI Studio key); see smartwizz.example.json for others
 
 dotnet run --project src/SmartWizz -- --repo ../my-repo --base origin/main
 ```
@@ -40,8 +40,9 @@ See [`smartwizz.example.json`](smartwizz.example.json). Notable settings:
 - `review.minConfidence` — findings below this are dropped (default 0.5).
 - `review.exclude` — glob patterns matched against path and file name; replaces the built-in list (lockfiles, minified, generated, migrations).
 - `provider.temperature` — `null` to omit for models that reject it.
+- `review.guidelines` — path (relative to the config file) to a markdown engineering standard, e.g. [`ENGINEERING_STANDARD.md`](ENGINEERING_STANDARD.md). Violations come back as findings with `ruleId` `standard-*`. Keep it in the trusted SmartWizz repo in CI, so a PR can't rewrite the rules it's checked against.
 
-Secrets are read only from the environment:
+Secrets are read only from the environment. For local runs you can put them in a git-ignored `./.env` (see [`.env.example`](.env.example)). Variables that are already set take precedence.
 
 | Variable | Used for |
 |---|---|
@@ -93,4 +94,4 @@ See [`pipelines/azure-pipelines.yml`](pipelines/azure-pipelines.yml) for a branc
 dotnet test
 ```
 
-Tests stub all HTTP. They make no live model or Azure DevOps calls.
+Tests stub all HTTP. They make no live model or Azure DevOps calls. `Directory.Build.props` enables the recommended .NET analyzers and turns warnings into errors.
