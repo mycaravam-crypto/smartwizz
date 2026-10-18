@@ -10,9 +10,9 @@ public sealed class AzureDevOpsPublisher(HttpClient http, AzureDevOpsConfig cfg,
     {
         if (string.IsNullOrWhiteSpace(cfg.CollectionUri) || string.IsNullOrWhiteSpace(cfg.Project)
             || string.IsNullOrWhiteSpace(cfg.RepositoryId) || cfg.PullRequestId is null)
-            throw new SmartWizzException("azureDevOps.collectionUri, project, repositoryId and pullRequestId are required to publish");
+            throw new SmartWizzException(FailureKind.Configuration, "azureDevOps.collectionUri, project, repositoryId and pullRequestId are required to publish");
         if (string.IsNullOrEmpty(token))
-            throw new SmartWizzException("set SMARTWIZZ_AZDO_TOKEN or SYSTEM_ACCESSTOKEN to publish");
+            throw new SmartWizzException(FailureKind.Configuration, "set SMARTWIZZ_AZDO_TOKEN or SYSTEM_ACCESSTOKEN to publish");
 
         var url = $"{cfg.CollectionUri.TrimEnd('/')}/{Uri.EscapeDataString(cfg.Project)}/_apis/git/repositories/" +
                   $"{Uri.EscapeDataString(cfg.RepositoryId)}/pullRequests/{cfg.PullRequestId}/threads?api-version={cfg.ApiVersion}";
@@ -40,17 +40,23 @@ public sealed class AzureDevOpsPublisher(HttpClient http, AzureDevOpsConfig cfg,
         {
             // Basic with empty user works for both PATs and System.AccessToken.
             req.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes(":" + token)));
+            using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(cfg.TimeoutSeconds));
             try
             {
-                using var res = await http.SendAsync(req, ct);
-                var body = await res.Content.ReadAsStringAsync(ct);
+                using var res = await http.SendAsync(req, timeout.Token);
+                var body = await res.Content.ReadAsStringAsync(timeout.Token);
                 if (!res.IsSuccessStatusCode)
-                    throw new SmartWizzException($"Azure DevOps {req.Method} returned {(int)res.StatusCode}: {(body.Length > 300 ? body[..300] + "..." : body)}");
+                    throw new SmartWizzException(FailureKind.Publish, $"Azure DevOps {req.Method} returned {(int)res.StatusCode}: {(body.Length > 300 ? body[..300] + "..." : body)}");
                 return body;
+            }
+            catch (OperationCanceledException e) when (!ct.IsCancellationRequested)
+            {
+                throw new SmartWizzException(FailureKind.Timeout, $"Azure DevOps {req.Method} timed out after {cfg.TimeoutSeconds}s", e);
             }
             catch (HttpRequestException e)
             {
-                throw new SmartWizzException($"Azure DevOps request failed: {e.Message}", e);
+                throw new SmartWizzException(FailureKind.Publish, $"Azure DevOps request failed: {e.Message}", e);
             }
         }
     }
@@ -69,7 +75,7 @@ public sealed class AzureDevOpsPublisher(HttpClient http, AzureDevOpsConfig cfg,
         }
         catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException)
         {
-            throw new SmartWizzException("Azure DevOps returned an unexpected threads response", e);
+            throw new SmartWizzException(FailureKind.Publish, "Azure DevOps returned an unexpected threads response", e);
         }
         return sb.ToString();
     }

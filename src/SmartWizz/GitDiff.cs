@@ -36,14 +36,29 @@ public static partial class GitDiff
                  })
             psi.ArgumentList.Add(a);
 
-        using var p = Process.Start(psi) ?? throw new SmartWizzException("failed to start git");
+        using var p = Process.Start(psi) ?? throw new SmartWizzException(FailureKind.Git, "failed to start git");
+        // Cancelling the reads alone would leave git running.
+        using CancellationTokenRegistration kill = ct.Register(() => KillQuietly(p));
         // Both streams drained concurrently so a full stderr pipe cannot block git.
         Task<string> stderr = p.StandardError.ReadToEndAsync(ct);
         string stdout = await p.StandardOutput.ReadToEndAsync(ct);
         await p.WaitForExitAsync(ct);
+        ct.ThrowIfCancellationRequested(); // a killed git must surface as cancellation, not a git error
         if (p.ExitCode != 0)
-            throw new SmartWizzException($"git diff failed ({p.ExitCode}): {(await stderr).Trim()}");
+            throw new SmartWizzException(FailureKind.Git, $"git diff failed ({p.ExitCode}): {(await stderr).Trim()}");
         return stdout;
+    }
+
+    static void KillQuietly(Process process)
+    {
+        try
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        catch (InvalidOperationException)
+        {
+            // Already exited: nothing to stop.
+        }
     }
 
     [GeneratedRegex(@"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")]

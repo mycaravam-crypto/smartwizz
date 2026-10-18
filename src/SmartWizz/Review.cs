@@ -115,18 +115,18 @@ public static partial class Review
         // Tolerates prose or ```json fences around the object.
         int start = reply.IndexOf('{'), end = reply.LastIndexOf('}');
         if (start < 0 || end < start)
-            throw new SmartWizzException("invalid model output: no JSON object");
+            throw new SmartWizzException(FailureKind.InvalidModelOutput, "invalid model output: no JSON object");
 
         JsonDocument doc;
         try { doc = JsonDocument.Parse(reply[start..(end + 1)]); }
-        catch (JsonException e) { throw new SmartWizzException($"invalid model output: {e.Message}", e); }
+        catch (JsonException e) { throw new SmartWizzException(FailureKind.InvalidModelOutput, $"invalid model output: {e.Message}", e); }
 
         using (doc)
         {
             if (doc.RootElement.ValueKind != JsonValueKind.Object
                 || !doc.RootElement.TryGetProperty("findings", out var arr)
                 || arr.ValueKind != JsonValueKind.Array)
-                throw new SmartWizzException("invalid model output: missing \"findings\" array");
+                throw new SmartWizzException(FailureKind.InvalidModelOutput, "invalid model output: missing \"findings\" array");
 
             var list = new List<Finding>();
             foreach (var e in arr.EnumerateArray())

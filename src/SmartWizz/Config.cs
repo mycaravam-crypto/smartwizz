@@ -24,14 +24,14 @@ public sealed class Config
         else if (File.Exists(path))
             cfg = Read(path);
         else
-            throw new SmartWizzException($"config file not found: {path}");
+            throw new SmartWizzException(FailureKind.Configuration, $"config file not found: {path}");
 
         // Relative to the config file, so CI resolves it inside the trusted SmartWizz checkout, not the PR.
         if (cfg.Review.Guidelines is { } g)
         {
             cfg.Review.Guidelines = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path ?? "smartwizz.json"))!, g);
             if (!File.Exists(cfg.Review.Guidelines))
-                throw new SmartWizzException($"guidelines file not found: {cfg.Review.Guidelines}");
+                throw new SmartWizzException(FailureKind.Configuration, $"guidelines file not found: {cfg.Review.Guidelines}");
         }
 
         // Lets CI point at an internal endpoint/model without a separate config file.
@@ -45,7 +45,22 @@ public sealed class Config
         az.RepositoryId ??= env("BUILD_REPOSITORY_ID");
         if (az.PullRequestId is null && int.TryParse(env("SYSTEM_PULLREQUEST_PULLREQUESTID"), out var pr))
             az.PullRequestId = pr;
+
+        Validate(cfg);
         return cfg;
+    }
+
+    static void Validate(Config cfg)
+    {
+        string? error =
+            cfg.Provider.TimeoutSeconds <= 0 ? "provider.timeoutSeconds must be greater than 0"
+            : cfg.AzureDevOps.TimeoutSeconds <= 0 ? "azureDevOps.timeoutSeconds must be greater than 0"
+            : cfg.Review.ContextLines < 0 ? "review.contextLines must not be negative"
+            : cfg.Review.MaxCharsPerRequest <= 0 ? "review.maxCharsPerRequest must be greater than 0"
+            : cfg.Review.MinConfidence is < 0 or > 1 ? "review.minConfidence must be between 0 and 1"
+            : null;
+        if (error is not null)
+            throw new SmartWizzException(FailureKind.Configuration, error);
     }
 
     // Local convenience for secrets (KEY=value lines). Never overrides variables already set, so CI secrets win.
@@ -72,7 +87,7 @@ public sealed class Config
         }
         catch (JsonException e)
         {
-            throw new SmartWizzException($"invalid config {path}: {e.Message}", e);
+            throw new SmartWizzException(FailureKind.Configuration, $"invalid config {path}: {e.Message}", e);
         }
     }
 }
@@ -110,7 +125,14 @@ public sealed class AzureDevOpsConfig
     public string? RepositoryId { get; set; }
     public int? PullRequestId { get; set; }
     public string ApiVersion { get; set; } = "6.0";
+    public int TimeoutSeconds { get; set; } = 60;
 }
 
-// Expected execution failures: printed without a stack trace, exit code 2.
-public sealed class SmartWizzException(string message, Exception? innerException = null) : Exception(message, innerException);
+public enum FailureKind { Usage, Configuration, Git, Provider, Timeout, InvalidModelOutput, Publish }
+
+// Expected execution failures: printed with their kind and without a stack trace, exit code 2.
+public sealed class SmartWizzException(FailureKind kind, string message, Exception? innerException = null)
+    : Exception(message, innerException)
+{
+    public FailureKind Kind { get; } = kind;
+}
