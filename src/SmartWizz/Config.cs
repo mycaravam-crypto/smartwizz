@@ -35,6 +35,22 @@ public sealed class Config
         return cfg;
     }
 
+    // Local convenience for secrets (KEY=value lines). Never overrides variables already set, so CI secrets win.
+    public static void LoadDotEnv(string path)
+    {
+        if (!File.Exists(path)) return;
+        foreach (var raw in File.ReadAllLines(path))
+        {
+            var line = raw.Trim();
+            var eq = line.IndexOf('=');
+            if (line.StartsWith('#') || eq <= 0) continue;
+            var key = line[..eq].Trim();
+            var value = line[(eq + 1)..].Trim().Trim('"', '\'');
+            if (Environment.GetEnvironmentVariable(key) is null)
+                Environment.SetEnvironmentVariable(key, value);
+        }
+    }
+
     static Config Read(string path)
     {
         try

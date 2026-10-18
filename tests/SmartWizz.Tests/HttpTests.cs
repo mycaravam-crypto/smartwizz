@@ -135,3 +135,26 @@ public class AzureDevOpsTests
         finally { File.Delete(path); }
     }
 }
+
+public class DotEnvTests
+{
+    [Fact]
+    public void Loads_values_without_overriding_existing_environment()
+    {
+        var path = Path.GetTempFileName();
+        File.WriteAllText(path, "# comment\nSW_TEST_NEW=\"abc=1\"\nSW_TEST_SET=fromfile\nnot a pair\n");
+        Environment.SetEnvironmentVariable("SW_TEST_SET", "fromenv");
+        try
+        {
+            Config.LoadDotEnv(path);
+            Assert.Equal("abc=1", Environment.GetEnvironmentVariable("SW_TEST_NEW"));
+            Assert.Equal("fromenv", Environment.GetEnvironmentVariable("SW_TEST_SET"));
+        }
+        finally
+        {
+            File.Delete(path);
+            Environment.SetEnvironmentVariable("SW_TEST_NEW", null);
+            Environment.SetEnvironmentVariable("SW_TEST_SET", null);
+        }
+    }
+}

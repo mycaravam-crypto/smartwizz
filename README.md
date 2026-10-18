@@ -13,8 +13,8 @@ It never runs PR code, never fixes, approves, or merges anything, and is report-
 ## Usage
 
 ```sh
-cp smartwizz.example.json smartwizz.json   # set provider.endpoint and provider.model
-export SMARTWIZZ_API_KEY=...               # omit for local servers without auth
+cp .env.example .env                       # put SMARTWIZZ_API_KEY in it (git-ignored)
+# smartwizz.json is preconfigured for Gemini (Google AI Studio key); see smartwizz.example.json for others
 
 dotnet run --project src/SmartWizz -- --repo ../my-repo --base origin/main
 ```
@@ -41,7 +41,7 @@ See [`smartwizz.example.json`](smartwizz.example.json). Notable settings:
 - `review.exclude` — glob patterns matched against path and file name; replaces the built-in list (lockfiles, minified, generated, migrations).
 - `provider.temperature` — `null` to omit for models that reject it.
 
-Secrets are read only from the environment:
+Secrets are read only from the environment. For local runs you can put them in a git-ignored `./.env` (see [`.env.example`](.env.example)). Variables that are already set take precedence.
 
 | Variable | Used for |
 |---|---|

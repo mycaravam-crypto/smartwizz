@@ -38,6 +38,7 @@ public static class Program
 
         try
         {
+            Config.LoadDotEnv(".env");
             var cfg = Config.Load(opt.ConfigPath, Environment.GetEnvironmentVariable);
             var files = GitDiff.Parse(GitDiff.Run(opt.Repo, opt.Base!, opt.Head, cfg.Review.ContextLines));
 
