@@ -8,6 +8,7 @@ public sealed class Config
     public ProviderConfig Provider { get; set; } = new();
     public ReviewConfig Review { get; set; } = new();
     public AzureDevOpsConfig AzureDevOps { get; set; } = new();
+    public GitHubConfig GitHub { get; set; } = new();
 
     public static readonly JsonSerializerOptions Json = new()
     {
@@ -46,6 +47,14 @@ public sealed class Config
         if (az.PullRequestId is null && int.TryParse(env("SYSTEM_PULLREQUEST_PULLREQUESTID"), out int pr))
             az.PullRequestId = pr;
 
+        // GitHub Actions provides GITHUB_REPOSITORY and GITHUB_API_URL; the PR number and head SHA come from the workflow.
+        GitHubConfig gh = cfg.GitHub;
+        gh.ApiUrl ??= env("GITHUB_API_URL");
+        gh.Repository ??= env("GITHUB_REPOSITORY");
+        gh.CommitId ??= env("SMARTWIZZ_GITHUB_SHA");
+        if (gh.PullRequest is null && int.TryParse(env("SMARTWIZZ_GITHUB_PR"), out int ghPr))
+            gh.PullRequest = ghPr;
+
         Validate(cfg);
         return cfg;
     }
@@ -57,6 +66,7 @@ public sealed class Config
             : cfg.Provider.MaxRetries is < 0 or > 5 ? "provider.maxRetries must be between 0 and 5"
             : cfg.Provider.FallbackModels.Any(string.IsNullOrWhiteSpace) ? "provider.fallbackModels must not contain empty names"
             : cfg.AzureDevOps.TimeoutSeconds <= 0 ? "azureDevOps.timeoutSeconds must be greater than 0"
+            : cfg.GitHub.TimeoutSeconds <= 0 ? "gitHub.timeoutSeconds must be greater than 0"
             : cfg.Review.ContextLines < 0 ? "review.contextLines must not be negative"
             : cfg.Review.MaxCharsPerRequest <= 0 ? "review.maxCharsPerRequest must be greater than 0"
             : cfg.Review.MinConfidence is < 0 or > 1 ? "review.minConfidence must be between 0 and 1"
@@ -132,6 +142,17 @@ public sealed class AzureDevOpsConfig
     public int? PullRequestId { get; set; }
     public string ApiVersion { get; set; } = "6.0";
     public int TimeoutSeconds { get; set; } = 60;
+}
+
+public sealed class GitHubConfig
+{
+    public string? ApiUrl { get; set; }
+    public string? Repository { get; set; }
+    public int? PullRequest { get; set; }
+    public string? CommitId { get; set; }
+    public int TimeoutSeconds { get; set; } = 60;
+
+    public string EffectiveApiUrl => string.IsNullOrWhiteSpace(ApiUrl) ? "https://api.github.com" : ApiUrl;
 }
 
 public enum FailureKind { Usage, Configuration, Git, Provider, Timeout, InvalidModelOutput, Publish }

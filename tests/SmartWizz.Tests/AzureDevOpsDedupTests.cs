@@ -42,11 +42,11 @@ public class AzureDevOpsDedupTests
     [Fact]
     public async Task Fingerprints_in_any_thread_or_reply_are_not_reposted()
     {
-        string marker = AzureDevOpsPublisher.Marker(F(Fp(2)));
+        string marker = PrComment.Marker(F(Fp(2)));
         (StubHandler? h, AzureDevOpsPublisher? publisher) = Make(_ => StubHandler.Json(Threads(
             ["human comment"],
             ["SmartWizz original", $"reply quoting it: {marker}"],
-            [AzureDevOpsPublisher.CommentText(F(Fp(3)))])));
+            [PrComment.Text(F(Fp(3)))])));
 
         Assert.Equal((1, 2), await publisher.PublishAsync([F(Fp(1)), F(Fp(2)), F(Fp(3))], default));
         Assert.Contains(Fp(1), h.Requests.Single(r => r.Request.Method == HttpMethod.Post).Body);

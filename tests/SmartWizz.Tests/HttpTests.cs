@@ -87,7 +87,7 @@ public class AzureDevOpsTests
         {
             value = new object[]
             {
-                new { comments = new[] { new { content = AzureDevOpsPublisher.CommentText(F("00000000000000aa")) } } },
+                new { comments = new[] { new { content = PrComment.Text(F("00000000000000aa")) } } },
                 new { comments = Array.Empty<object>() },
             },
         });

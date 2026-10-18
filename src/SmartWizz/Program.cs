@@ -14,9 +14,11 @@ public static class Program
           --json <path>       Also write the JSON report to this file
           --fail-on <sev>     Exit 1 if any finding is at/above low|medium|high|critical
           --publish           Post findings as Azure DevOps PR threads
+          --publish-github    Post findings as inline comments of one GitHub PR review
           -h, --help          Show this help
 
-        Environment: SMARTWIZZ_API_KEY (provider), SMARTWIZZ_AZDO_TOKEN or SYSTEM_ACCESSTOKEN (Azure DevOps).
+        Environment: SMARTWIZZ_API_KEY (provider), SMARTWIZZ_AZDO_TOKEN or SYSTEM_ACCESSTOKEN (Azure DevOps),
+                     GITHUB_TOKEN or SMARTWIZZ_GITHUB_TOKEN (GitHub).
         Exit codes: 0 ok, 1 findings at/above --fail-on, 2 execution failure, 130 cancelled.
         """;
 
@@ -106,6 +108,12 @@ public static class Program
             (int posted, int present) = await new AzureDevOpsPublisher(http, cfg.AzureDevOps, token).PublishAsync(result.Findings, ct);
             Console.WriteLine($"\nPublished {posted} new thread(s); {present} already present.");
         }
+        if (opt.PublishGitHub)
+        {
+            string? token = Environment.GetEnvironmentVariable("SMARTWIZZ_GITHUB_TOKEN") ?? Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+            (int posted, int present) = await new GitHubPublisher(http, cfg.GitHub, token).PublishAsync(result.Findings, ct);
+            Console.WriteLine($"\nPosted {posted} inline comment(s) as a GitHub review; {present} already present.");
+        }
 
         return Review.ExitCode(result.Findings, opt.FailOn);
     }
@@ -128,6 +136,7 @@ public sealed record Options
     public string? JsonPath { get; init; }
     public Severity? FailOn { get; init; }
     public bool Publish { get; init; }
+    public bool PublishGitHub { get; init; }
     public bool Help { get; init; }
 
     public static Options Parse(string[] args)
@@ -145,6 +154,7 @@ public sealed record Options
                 "--json" => o with { JsonPath = Value() },
                 "--fail-on" => o with { FailOn = Review.ParseSeverity(Value()) ?? throw new SmartWizzException(FailureKind.Usage, $"invalid severity: {args[i]}") },
                 "--publish" => o with { Publish = true },
+                "--publish-github" => o with { PublishGitHub = true },
                 "-h" or "--help" => o with { Help = true },
                 _ => throw new SmartWizzException(FailureKind.Usage, $"unknown argument: {args[i]}"),
             };
