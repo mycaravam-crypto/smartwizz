@@ -8,7 +8,7 @@ It never runs PR code, never fixes, approves, or merges anything, and is report-
 
 - .NET 10 SDK
 - `git`
-- An OpenAI-compatible chat-completions endpoint (OpenAI, Azure OpenAI-compatible gateways, Ollama, vLLM, LM Studio, ...)
+- An OpenAI-compatible chat-completions endpoint: public (OpenAI, Gemini) or internal (vLLM, Ollama, LiteLLM, Azure OpenAI, ...)
 
 ## Usage
 
@@ -78,6 +78,58 @@ The `fingerprint` hashes rule, path, and the *content* of the start line, so it 
 Connection settings come from `azureDevOps.*` in the config, falling back to the pipeline variables `System.CollectionUri`, `System.TeamProject`, `Build.Repository.ID`, and `System.PullRequest.PullRequestId`. `apiVersion` defaults to `6.0` (Server 2020+); use `5.0` for Server 2019. The token needs only code read and PR thread read/write.
 
 See [`pipelines/azure-pipelines.yml`](pipelines/azure-pipelines.yml) for a branch-policy build. It reviews `origin/<target>...HEAD^2`, the PR source tip, so line numbers match the PR view.
+
+## Internal / self-hosted model APIs
+
+Any server that speaks the OpenAI chat-completions format works: vLLM, Ollama, LiteLLM, TGI, LM Studio, or an Azure OpenAI gateway. Nothing about the code is public-API specific.
+
+```json
+{
+  "provider": {
+    "endpoint": "https://llm.internal.example/v1/chat/completions",
+    "model": "your-internal-model",
+    "apiKeyHeader": "api-key"
+  }
+}
+```
+
+- **Auth:** by default the key is sent as `Authorization: Bearer <key>`. Set `provider.apiKeyHeader` to send the raw key in another header (e.g. `api-key` for Azure OpenAI). Leave `SMARTWIZZ_API_KEY` unset for servers without auth.
+- **Endpoint/model per environment:** `SMARTWIZZ_ENDPOINT` and `SMARTWIZZ_MODEL` override the config file.
+- **Internal CA:** add the CA to the machine's trust store, or on Linux point `SSL_CERT_FILE` / `SSL_CERT_DIR` at it. There is deliberately no "skip TLS verification" switch.
+- **Proxy:** `HTTPS_PROXY` / `NO_PROXY` are honoured. Internal hosts usually belong in `NO_PROXY`.
+- **Plain HTTP:** works, but SmartWizz warns, because code and key travel unencrypted.
+- **Network reach:** the machine running SmartWizz must reach the endpoint. In GitHub that means a self-hosted runner (see below); GitHub-hosted runners can't see your internal network.
+
+## GitHub
+
+SmartWizz ships a reusable workflow. Add this file to any repository as `.github/workflows/smartwizz.yml`:
+
+```yaml
+name: SmartWizz
+on: pull_request
+
+jobs:
+  smartwizz:
+    uses: mycaravam-crypto/smartwizz/.github/workflows/review.yml@main
+    with:
+      fail-on: high                       # optional; omit for report-only
+      # Internal API on a self-hosted runner:
+      # runner: '["self-hosted", "linux"]'
+      # endpoint: https://llm.internal.example/v1/chat/completions
+      # model: your-internal-model
+    secrets:
+      SMARTWIZZ_API_KEY: ${{ secrets.SMARTWIZZ_API_KEY }}
+```
+
+Then add the `SMARTWIZZ_API_KEY` secret to that repository (*Settings → Secrets and variables → Actions*), or once at organization level.
+
+Each PR gets a review in the job summary plus a `smartwizz-report` JSON artifact. With `fail-on`, the check fails and can be made required in branch protection. The workflow reviews `base...head` of the PR, checks out SmartWizz itself for config and the engineering standard, and has read-only permissions. It does not post PR comments; that would need a GitHub publisher (not built yet).
+
+Pin `@main` to a tag or commit SHA if you want reviews to stay unchanged until you upgrade deliberately (also pass the same value as `smartwizz-ref`).
+
+Security notes:
+- Use `on: pull_request`, **never** `pull_request_target`. PRs from forks then get no secrets, so they can't extract the key; for those PRs the review just fails.
+- Anyone who can push a branch to the repository can change the workflow file, so they are trusted with the secret either way. That is the same boundary as any CI secret.
 
 ## Security
 

@@ -34,6 +34,11 @@ public sealed class Config
                 throw new SmartWizzException($"guidelines file not found: {cfg.Review.Guidelines}");
         }
 
+        // Lets CI point at an internal endpoint/model without a separate config file.
+        // Empty counts as unset: CI systems pass unset inputs as empty strings.
+        if (env("SMARTWIZZ_ENDPOINT") is { Length: > 0 } endpoint) cfg.Provider.Endpoint = endpoint;
+        if (env("SMARTWIZZ_MODEL") is { Length: > 0 } model) cfg.Provider.Model = model;
+
         var az = cfg.AzureDevOps;
         az.CollectionUri ??= env("SYSTEM_COLLECTIONURI");
         az.Project ??= env("SYSTEM_TEAMPROJECT");
@@ -79,6 +84,8 @@ public sealed class ProviderConfig
     // null = omit (some reasoning models reject a temperature parameter)
     public double? Temperature { get; set; } = 0;
     public int TimeoutSeconds { get; set; } = 180;
+    // null = "Authorization: Bearer <key>"; otherwise the raw key in this header (e.g. "api-key" for Azure OpenAI).
+    public string? ApiKeyHeader { get; set; }
 }
 
 public sealed class ReviewConfig

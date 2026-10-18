@@ -40,6 +40,8 @@ public static class Program
         {
             Config.LoadDotEnv(".env");
             Config cfg = Config.Load(opt.ConfigPath, Environment.GetEnvironmentVariable);
+            if (Uri.TryCreate(cfg.Provider.Endpoint, UriKind.Absolute, out Uri? endpoint) && endpoint.Scheme == Uri.UriSchemeHttp && !endpoint.IsLoopback)
+                Console.Error.WriteLine("warning: provider endpoint uses plain HTTP; code and API key are sent unencrypted");
             List<FileDiff> files = GitDiff.Parse(await GitDiff.RunAsync(opt.Repo, opt.Base!, opt.Head, cfg.Review.ContextLines, CancellationToken.None));
 
             using var http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan }; // per-request timeouts instead

@@ -265,3 +265,43 @@ public class ReportTests
         Assert.Contains("Skipped: a.lock (excluded)", text);
     }
 }
+
+public class InternalProviderTests
+{
+    [Fact]
+    public async Task Custom_key_header_replaces_bearer()
+    {
+        var h = new StubHandler((_, _) => StubHandler.Chat("ok"));
+        var cfg = new ProviderConfig { Endpoint = "https://llm.internal/v1/chat/completions", Model = "m", ApiKeyHeader = "api-key" };
+        await new Provider(new HttpClient(h), cfg, "k1").CompleteAsync("s", "u", default);
+
+        var req = h.Requests.Single().Request;
+        Assert.Null(req.Headers.Authorization);
+        Assert.Equal("k1", Assert.Single(req.Headers.GetValues("api-key")));
+    }
+
+    [Fact]
+    public async Task Invalid_key_header_is_a_config_error()
+    {
+        var h = new StubHandler((_, _) => StubHandler.Chat("ok"));
+        var cfg = new ProviderConfig { Endpoint = "https://x", Model = "m", ApiKeyHeader = "bad header" };
+        await Assert.ThrowsAsync<SmartWizzException>(() => new Provider(new HttpClient(h), cfg, "k").CompleteAsync("s", "u", default));
+        Assert.Empty(h.Requests);
+    }
+
+    [Fact]
+    public void Endpoint_and_model_env_vars_override_config()
+    {
+        var env = new Dictionary<string, string> { ["SMARTWIZZ_ENDPOINT"] = "https://llm.internal/v1/chat/completions", ["SMARTWIZZ_MODEL"] = "local-coder" };
+        var path = Path.GetTempFileName();
+        File.WriteAllText(path, """{ "provider": { "endpoint": "https://public", "model": "public-model" } }""");
+        try
+        {
+            var p = Config.Load(path, k => env.GetValueOrDefault(k)).Provider;
+            Assert.Equal(("https://llm.internal/v1/chat/completions", "local-coder"), (p.Endpoint, p.Model));
+            env["SMARTWIZZ_ENDPOINT"] = "";
+            Assert.Equal("https://public", Config.Load(path, k => env.GetValueOrDefault(k)).Provider.Endpoint);
+        }
+        finally { File.Delete(path); }
+    }
+}
