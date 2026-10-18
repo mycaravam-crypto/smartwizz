@@ -40,7 +40,7 @@ public static class Program
         {
             Config.LoadDotEnv(".env");
             var cfg = Config.Load(opt.ConfigPath, Environment.GetEnvironmentVariable);
-            var files = GitDiff.Parse(GitDiff.Run(opt.Repo, opt.Base!, opt.Head, cfg.Review.ContextLines));
+            var files = GitDiff.Parse(await GitDiff.RunAsync(opt.Repo, opt.Base!, opt.Head, cfg.Review.ContextLines, CancellationToken.None));
 
             using var http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan }; // per-request timeouts instead
             var provider = new Provider(http, cfg.Provider, Environment.GetEnvironmentVariable("SMARTWIZZ_API_KEY"));

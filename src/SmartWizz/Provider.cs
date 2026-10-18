@@ -31,11 +31,12 @@ public sealed class Provider(HttpClient http, ProviderConfig cfg, string? apiKey
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(cfg.TimeoutSeconds));
 
-        HttpResponseMessage res;
+        int status;
         string body;
         try
         {
-            res = await http.SendAsync(req, cts.Token);
+            using HttpResponseMessage res = await http.SendAsync(req, cts.Token);
+            status = (int)res.StatusCode;
             body = await res.Content.ReadAsStringAsync(cts.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -47,22 +48,19 @@ public sealed class Provider(HttpClient http, ProviderConfig cfg, string? apiKey
             throw new SmartWizzException($"provider request failed: {e.Message}");
         }
 
-        using (res)
+        if (status is < 200 or > 299)
+            throw new SmartWizzException($"provider returned {status}: {Truncate(body, 500)}");
+        try
         {
-            if (!res.IsSuccessStatusCode)
-                throw new SmartWizzException($"provider returned {(int)res.StatusCode}: {Truncate(body, 500)}");
-            try
-            {
-                using var doc = JsonDocument.Parse(body);
-                var content = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
-                return string.IsNullOrWhiteSpace(content)
-                    ? throw new SmartWizzException("provider returned empty content")
-                    : content;
-            }
-            catch (Exception e) when (e is JsonException or KeyNotFoundException or IndexOutOfRangeException or InvalidOperationException)
-            {
-                throw new SmartWizzException($"provider returned unexpected response: {Truncate(body, 500)}");
-            }
+            using JsonDocument doc = JsonDocument.Parse(body);
+            string? content = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
+            return string.IsNullOrWhiteSpace(content)
+                ? throw new SmartWizzException("provider returned empty content")
+                : content;
+        }
+        catch (Exception e) when (e is JsonException or KeyNotFoundException or IndexOutOfRangeException or InvalidOperationException)
+        {
+            throw new SmartWizzException($"provider returned unexpected response: {Truncate(body, 500)}");
         }
     }
 

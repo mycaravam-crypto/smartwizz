@@ -1,4 +1,6 @@
-using SmartWizz;
+
+
+namespace SmartWizz.Tests;
 
 public class ReviewTests
 {
@@ -99,12 +101,13 @@ public class ReviewTests
         Assert.Single(result.Findings);
         Assert.Equal(["deleted", "binary", "excluded"], result.SkippedFiles.Select(s => s.Reason));
         Assert.Contains("BEGIN-DIFF-", stub.Requests[0].Body);
-        Assert.DoesNotContain("package-lock", stub.Requests[0].Body);
+        Assert.Contains("- web/package-lock.json\\n", stub.Requests[0].Body); // listed for context (JSON-escaped newline)...
+        Assert.DoesNotContain("File: web/package-lock.json", stub.Requests[0].Body); // ...but not sent
     }
 
     [Fact]
     public void User_message_nonce_differs_per_call() =>
-        Assert.NotEqual(Review.BuildUserMessage([]), Review.BuildUserMessage([]));
+        Assert.NotEqual(Review.BuildUserMessage([], []), Review.BuildUserMessage([], []));
 
     [Fact]
     public void Options_require_base_and_validate_severity()
