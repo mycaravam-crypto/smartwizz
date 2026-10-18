@@ -14,6 +14,9 @@ public sealed class StubHandler(Func<HttpRequestMessage, string?, HttpResponseMe
         return respond(request, body);
     }
 
+    // For Provider retries: record nothing, wait nothing.
+    public static readonly Func<TimeSpan, CancellationToken, Task> NoDelay = (_, _) => Task.CompletedTask;
+
     public static HttpResponseMessage Json(string json, HttpStatusCode status = HttpStatusCode.OK) =>
         new(status) { Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json") };
 

@@ -4,7 +4,9 @@
     "endpoint": "https://api.openai.com/v1/chat/completions", // or e.g. http://localhost:11434/v1/chat/completions (Ollama)
     "model": "your-model-name",
     "temperature": 0, // set to null for models that reject a temperature parameter
-    "timeoutSeconds": 180
+    "timeoutSeconds": 180,
+    "maxRetries": 2, // per model, on 429/5xx or a dropped connection (waits 2s, 4s or Retry-After, max 30s)
+    "fallbackModels": [] // e.g. ["other-model"]: same endpoint and key, used only when the previous model stays overloaded
   },
   "review": {
     "contextLines": 10,

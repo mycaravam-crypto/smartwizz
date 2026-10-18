@@ -1,7 +1,11 @@
 {
   "provider": {
     "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-    "model": "gemini-3.5-flash"
+    "model": "gemini-3.5-flash",
+    "fallbackModels": [
+      "gemini-2.5-flash",
+      "gemini-3.5-flash-lite"
+    ]
   },
   "review": {
     "guidelines": "ENGINEERING_STANDARD.md"

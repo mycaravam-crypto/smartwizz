@@ -59,7 +59,7 @@ public class TimeoutTests
         int calls = 0;
         var stub = new StubHandler((_, _) => ++calls == 1
             ? StubHandler.Chat("""{"findings":[]}""")
-            : StubHandler.Json("busy", System.Net.HttpStatusCode.ServiceUnavailable));
+            : StubHandler.Json("bad request", System.Net.HttpStatusCode.BadRequest));
         var provider = new Provider(new HttpClient(stub), new ProviderConfig { Endpoint = "http://x", Model = "m" }, null);
         List<FileDiff> files = GitDiff.Parse("""
             diff --git a/a.cs b/a.cs

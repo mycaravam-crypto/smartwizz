@@ -7,13 +7,14 @@ namespace SmartWizz.Tests;
 public class ProviderTests
 {
     static Provider Make(StubHandler h, ProviderConfig? cfg = null) =>
-        new(new HttpClient(h), cfg ?? new ProviderConfig { Endpoint = "http://llm/v1/chat/completions", Model = "m" }, "sk-secret");
+        new(new HttpClient(h), cfg ?? new ProviderConfig { Endpoint = "http://llm/v1/chat/completions", Model = "m" }, "sk-secret",
+            delay: StubHandler.NoDelay);
 
     [Fact]
     public async Task Sends_model_messages_and_bearer_key()
     {
         var h = new StubHandler((_, _) => StubHandler.Chat("ok"));
-        Assert.Equal("ok", await Make(h).CompleteAsync("sys", "usr", default));
+        Assert.Equal(new Completion("ok", "m"), await Make(h).CompleteAsync("sys", "usr", default));
 
         (HttpRequestMessage? req, string? body) = h.Requests.Single();
         Assert.Equal("Bearer sk-secret", req.Headers.Authorization!.ToString());
@@ -223,12 +224,19 @@ public class ProviderDisposalTests
     [Fact]
     public async Task Response_is_disposed_when_reading_body_fails()
     {
-        var response = new TrackedResponse { Content = new FailingContent() };
-        var provider = new Provider(new HttpClient(new StubHandler((_, _) => response)),
-            new ProviderConfig { Endpoint = "http://x", Model = "m" }, null);
+        // A dropped body read is retried, so every attempt gets (and must dispose) its own response.
+        var responses = new List<TrackedResponse>();
+        var provider = new Provider(new HttpClient(new StubHandler((_, _) =>
+            {
+                var response = new TrackedResponse { Content = new FailingContent() };
+                responses.Add(response);
+                return response;
+            })),
+            new ProviderConfig { Endpoint = "http://x", Model = "m" }, null, delay: StubHandler.NoDelay);
 
         await Assert.ThrowsAsync<SmartWizzException>(() => provider.CompleteAsync("s", "u", default));
-        Assert.True(response.Disposed);
+        Assert.Equal(3, responses.Count);
+        Assert.All(responses, r => Assert.True(r.Disposed));
     }
 }
 

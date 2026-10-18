@@ -18,6 +18,7 @@ public static class Report
     {
         version = 1,
         r.ReviewedFiles,
+        r.Models,
         r.Findings,
         r.SkippedFiles,
         r.Rejected,
@@ -27,6 +28,8 @@ public static class Report
     {
         w.WriteLine($"SmartWizz: {r.Findings.Count} finding(s) in {r.ReviewedFiles} reviewed file(s); " +
                     $"{r.SkippedFiles.Count} skipped file(s), {r.Rejected.Count} rejected finding(s).");
+        if (r.Models.Count > 0)
+            w.WriteLine($"Reviewed by: {string.Join(", ", r.Models)}");
         foreach (Finding f in r.Findings)
         {
             string lines = f.EndLine is { } e ? $"{f.StartLine}-{e}" : $"{f.StartLine}";
