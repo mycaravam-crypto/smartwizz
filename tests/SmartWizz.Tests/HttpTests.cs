@@ -158,3 +158,32 @@ public class DotEnvTests
         }
     }
 }
+
+public class GuidelinesTests
+{
+    [Fact]
+    public void System_prompt_appends_standard_only_when_configured()
+    {
+        Assert.Equal("base", Review.SystemPrompt("base", null));
+        var p = Review.SystemPrompt("base", "  - No magic numbers.\n");
+        Assert.StartsWith("base", p);
+        Assert.Contains("<standard>\n- No magic numbers.\n</standard>", p);
+        Assert.Contains("standard-<short-kebab-rule-name>", p);
+    }
+
+    [Fact]
+    public void Guidelines_path_resolves_relative_to_config_and_must_exist()
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            var cfgPath = Path.Combine(dir, "smartwizz.json");
+            File.WriteAllText(cfgPath, """{ "review": { "guidelines": "ENGINEERING_STANDARD.md" } }""");
+            Assert.Throws<SmartWizzException>(() => Config.Load(cfgPath, _ => null));
+
+            File.WriteAllText(Path.Combine(dir, "ENGINEERING_STANDARD.md"), "rules");
+            Assert.Equal(Path.Combine(dir, "ENGINEERING_STANDARD.md"), Config.Load(cfgPath, _ => null).Review.Guidelines);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+}

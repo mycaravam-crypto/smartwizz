@@ -44,7 +44,9 @@ public static class Program
 
             using var http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan }; // per-request timeouts instead
             var provider = new Provider(http, cfg.Provider, Environment.GetEnvironmentVariable("SMARTWIZZ_API_KEY"));
-            var result = await Review.RunAsync(files, cfg.Review, provider, LoadPrompt(), CancellationToken.None);
+            var result = await Review.RunAsync(files, cfg.Review, provider,
+                Review.SystemPrompt(LoadPrompt(), cfg.Review.Guidelines is { } g ? await File.ReadAllTextAsync(g) : null),
+                CancellationToken.None);
 
             Report.WriteConsole(result, Console.Out);
             if (opt.JsonPath is not null)

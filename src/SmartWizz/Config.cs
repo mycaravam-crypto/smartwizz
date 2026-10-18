@@ -26,6 +26,14 @@ public sealed class Config
         else
             throw new SmartWizzException($"config file not found: {path}");
 
+        // Relative to the config file, so CI resolves it inside the trusted SmartWizz checkout, not the PR.
+        if (cfg.Review.Guidelines is { } g)
+        {
+            cfg.Review.Guidelines = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path ?? "smartwizz.json"))!, g);
+            if (!File.Exists(cfg.Review.Guidelines))
+                throw new SmartWizzException($"guidelines file not found: {cfg.Review.Guidelines}");
+        }
+
         var az = cfg.AzureDevOps;
         az.CollectionUri ??= env("SYSTEM_COLLECTIONURI");
         az.Project ??= env("SYSTEM_TEAMPROJECT");
@@ -78,6 +86,8 @@ public sealed class ReviewConfig
     public int ContextLines { get; set; } = 10;
     public int MaxCharsPerRequest { get; set; } = 60_000;
     public double MinConfidence { get; set; } = 0.5;
+    // Optional markdown engineering standard checked in addition to bugs/security/tests.
+    public string? Guidelines { get; set; }
     public string[] Exclude { get; set; } =
     [
         "*.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "packages.lock.json",
