@@ -152,7 +152,7 @@ public static partial class Review
         var ruleId = Str("ruleId");
         var title = Str("title");
         var message = Str("message");
-        var path = Str("filePath")?.TrimStart('/');
+        var path = NormalizePath(Str("filePath"), files);
         var start = Int("startLine");
         var end = Int("endLine");
         double? conf = e.TryGetProperty("confidence", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetDouble() : null;
@@ -162,9 +162,9 @@ public static partial class Review
             return Reject(out reason, "missing or invalid field");
         if (!files.TryGetValue(path, out var file))
             return Reject(out reason, $"{path}: file not in reviewed diff");
-        if (!file.NewLines.TryGetValue(start.Value, out string? startText))
-            return Reject(out reason, $"{path}:{start}: line not in diff");
-        if (end is not null && (end < start || !file.NewLines.ContainsKey(end.Value)))
+        if (!file.AddedLines.Contains(start.Value) || !file.NewLines.TryGetValue(start.Value, out string? startText))
+            return Reject(out reason, $"{path}:{start}: not an added line");
+        if (end is not null && !IsVisibleRange(file, start.Value, end.Value))
             return Reject(out reason, $"{path}:{start}-{end}: invalid line range");
         if (conf is < 0 or > 1)
             return Reject(out reason, $"{path}:{start}: confidence out of range");
@@ -174,6 +174,26 @@ public static partial class Review
         ruleId = Sanitize(ruleId, false);
         return new Finding(ruleId, sev.Value, Cap(Sanitize(title, false), 200), Cap(Sanitize(message, true), 4000), path, start.Value,
             end == start ? null : end, conf.Value, Fingerprint(ruleId, path, startText));
+    }
+
+    // Contiguous new-side lines shown in one hunk, so the range maps onto what the reviewer sees.
+    static bool IsVisibleRange(FileDiff file, int start, int end)
+    {
+        if (end < start) return false;
+        for (int line = start; line <= end; line++)
+            if (!file.NewLines.ContainsKey(line)) return false;
+        return true;
+    }
+
+    // Models echo paths with leading "/", "./", git's "b/" prefix, or Windows separators.
+    static string? NormalizePath(string? path, IReadOnlyDictionary<string, FileDiff> files)
+    {
+        if (path is null) return null;
+        string normalized = path.Replace('\\', '/').TrimStart('/');
+        while (normalized.StartsWith("./", StringComparison.Ordinal)) normalized = normalized[2..];
+        return !files.ContainsKey(normalized) && normalized.StartsWith("b/", StringComparison.Ordinal) && files.ContainsKey(normalized[2..])
+            ? normalized[2..]
+            : normalized;
     }
 
     static Finding? Reject(out string reason, string why)

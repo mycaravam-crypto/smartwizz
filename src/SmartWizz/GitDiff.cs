@@ -12,6 +12,8 @@ public sealed class FileDiff
     public bool IsDeleted { get; set; }
     // New-side line number -> line text, for every line visible in the diff (context + added).
     public Dictionary<int, string> NewLines { get; } = [];
+    // New-side line numbers this change added. Findings must start on one of these.
+    public HashSet<int> AddedLines { get; } = [];
     // Diff body with new-side line numbers, as sent to the model.
     public StringBuilder Annotated { get; } = new();
 }
@@ -75,6 +77,7 @@ public static partial class GitDiff
                     if (p == "/dev/null") cur.IsDeleted = true;
                     else cur.Path = p.StartsWith("b/") ? p[2..] : p;
                 }
+                else if (line.StartsWith("rename to ")) cur.Path = Unquote(line["rename to ".Length..]);
                 else if (line.StartsWith("deleted file mode")) cur.IsDeleted = true;
                 else if (line.StartsWith("Binary files ")) cur.IsBinary = true;
             }
@@ -93,6 +96,7 @@ public static partial class GitDiff
             {
                 case ' ':
                 case '+':
+                    if (line[0] == '+') cur.AddedLines.Add(newLine);
                     cur.NewLines[newLine] = line[1..];
                     cur.Annotated.Append($"{newLine,6} |{line}\n");
                     newLine++;

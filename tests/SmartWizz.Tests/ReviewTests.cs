@@ -40,6 +40,9 @@ public class ReviewTests
     [InlineData("\"filePath\":\"src/Calc.cs\"", "\"filePath\":\"src/Other.cs\"")] // file not in diff
     [InlineData("\"filePath\":\"src/Calc.cs\"", "\"filePath\":\"old.txt\"")]      // not in this batch's lines
     [InlineData("\"startLine\":12", "\"startLine\":99")]                          // line outside diff
+    [InlineData("\"startLine\":12", "\"startLine\":11")]                          // unchanged context line
+    [InlineData("\"endLine\":13", "\"endLine\":15")]                              // end past the hunk
+    [InlineData("\"startLine\":12", "\"startLine\":-1")]
     [InlineData("\"endLine\":13", "\"endLine\":11")]                              // end before start
     [InlineData("\"severity\":\"high\"", "\"severity\":\"urgent\"")]
     [InlineData("\"severity\":\"high\"", "\"severity\":\"1\"")]
@@ -53,9 +56,42 @@ public class ReviewTests
         Assert.Single(rejected);
     }
 
+    [Theory]
+    [InlineData("/src/Calc.cs")]
+    [InlineData("./src/Calc.cs")]
+    [InlineData("b/src/Calc.cs")]
+    [InlineData("src\\\\Calc.cs")]
+    public void Path_variants_are_normalized(string path)
+    {
+        var f = Assert.Single(Parse(One(Good.Replace("\"src/Calc.cs\"", $"\"{path}\""))));
+        Assert.Equal("src/Calc.cs", f.FilePath);
+    }
+
     [Fact]
-    public void Leading_slash_in_path_is_accepted() =>
-        Assert.Single(Parse(One(Good.Replace("\"src/Calc.cs\"", "\"/src/Calc.cs\""))));
+    public void Range_may_extend_over_context_but_not_across_a_gap_between_hunks()
+    {
+        var files = GitDiff.Parse("""
+            diff --git a/a.cs b/a.cs
+            --- a/a.cs
+            +++ b/a.cs
+            @@ -1,2 +1,3 @@
+             one
+            +two
+             three
+            @@ -20,2 +21,3 @@
+             x
+            +y
+             z
+
+            """).ToDictionary(f => f.Path);
+        string Finding(int start, int end) =>
+            $$"""{"findings":[{"ruleId":"r","severity":"low","title":"t","message":"m","filePath":"a.cs","startLine":{{start}},"endLine":{{end}},"confidence":0.9}]}""";
+
+        Assert.Single(Review.Parse(Finding(2, 3), files, 0.5, []));    // added line + following context
+        var rejected = new List<string>();
+        Assert.Empty(Review.Parse(Finding(2, 22), files, 0.5, rejected)); // spans lines not shown
+        Assert.Contains("invalid line range", Assert.Single(rejected));
+    }
 
     [Fact]
     public void Fingerprint_ignores_whitespace_and_line_number_but_not_rule()
