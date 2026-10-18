@@ -1,0 +1,104 @@
+# Reusable SmartWizz PR review. Call it from any repository:
+#
+#   on: pull_request
+#   jobs:
+#     smartwizz:
+#       uses: mycaravam-crypto/smartwizz/.github/workflows/review.yml@main
+#       secrets:
+#         SMARTWIZZ_API_KEY: ${{ secrets.SMARTWIZZ_API_KEY }}
+#
+# Report-only: results go to the job summary and a JSON artifact. Nothing is posted to the PR.
+name: SmartWizz review
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: JSON for runs-on, e.g. '"ubuntu-latest"' or '["self-hosted", "linux"]' (needed for internal APIs)
+        type: string
+        default: '"ubuntu-latest"'
+      fail-on:
+        description: Fail the job on findings at/above low|medium|high|critical. Empty = report only.
+        type: string
+        default: ""
+      endpoint:
+        description: OpenAI-compatible chat-completions URL. Empty = SmartWizz's smartwizz.json.
+        type: string
+        default: ""
+      model:
+        description: Model name. Empty = SmartWizz's smartwizz.json.
+        type: string
+        default: ""
+      config:
+        description: Config file path inside the SmartWizz repository.
+        type: string
+        default: smartwizz.json
+      smartwizz-ref:
+        description: SmartWizz branch, tag or SHA to run.
+        type: string
+        default: main
+    secrets:
+      SMARTWIZZ_API_KEY:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    timeout-minutes: 20
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@v7
+        with:
+          path: pr
+          fetch-depth: 0 # merge-base needs history
+          persist-credentials: false
+
+      - name: Check out SmartWizz
+        uses: actions/checkout@v7
+        with:
+          repository: mycaravam-crypto/smartwizz
+          ref: ${{ inputs.smartwizz-ref }}
+          path: smartwizz
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      # Inputs go through env, never inline into the script, to rule out script injection.
+      # Runs from the SmartWizz checkout: config, standard and any .env come from there, not from the PR.
+      - name: Review
+        working-directory: smartwizz
+        env:
+          SMARTWIZZ_API_KEY: ${{ secrets.SMARTWIZZ_API_KEY }}
+          SMARTWIZZ_ENDPOINT: ${{ inputs.endpoint }}
+          SMARTWIZZ_MODEL: ${{ inputs.model }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          FAIL_ON: ${{ inputs.fail-on }}
+          CONFIG: ${{ inputs.config }}
+        run: |
+          set -euo pipefail
+          args=(--repo ../pr --base "origin/$BASE_REF" --head "$HEAD_SHA" --config "$CONFIG" --json ../smartwizz-report.json)
+          if [ -n "$FAIL_ON" ]; then args+=(--fail-on "$FAIL_ON"); fi
+          dotnet run --project src/SmartWizz -c Release -- "${args[@]}" | tee ../smartwizz-report.txt
+
+      # Indented code block, not a fence: model text cannot break out of it into rendered markdown.
+      - name: Job summary
+        if: always()
+        run: |
+          if [ -f smartwizz-report.txt ]; then
+            { echo "## SmartWizz review"; echo; sed 's/^/    /' smartwizz-report.txt; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload JSON report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smartwizz-report
+          path: smartwizz-report.json
+          if-no-files-found: ignore

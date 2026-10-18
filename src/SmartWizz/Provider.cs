@@ -26,7 +26,12 @@ public sealed class Provider(HttpClient http, ProviderConfig cfg, string? apiKey
             }, Json), Encoding.UTF8, "application/json"),
         };
         if (!string.IsNullOrEmpty(apiKey))
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        {
+            if (cfg.ApiKeyHeader is null)
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            else if (!req.Headers.TryAddWithoutValidation(cfg.ApiKeyHeader, apiKey))
+                throw new SmartWizzException($"provider.apiKeyHeader is not a valid request header: {cfg.ApiKeyHeader}");
+        }
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(cfg.TimeoutSeconds));
