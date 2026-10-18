@@ -12,6 +12,8 @@ public sealed class FileDiff
     public bool IsDeleted { get; set; }
     // New-side line number -> line text, for every line visible in the diff (context + added).
     public Dictionary<int, string> NewLines { get; } = [];
+    // New-side line numbers this change added. Findings must start on one of these.
+    public HashSet<int> AddedLines { get; } = [];
     // Diff body with new-side line numbers, as sent to the model.
     public StringBuilder Annotated { get; } = new();
 }
@@ -27,21 +29,36 @@ public static partial class GitDiff
             StandardOutputEncoding = Encoding.UTF8,
         };
         // --no-ext-diff / --no-textconv: never let repository config run commands.
-        foreach (var a in new[]
+        foreach (string? a in new[]
                  {
                      "-C", repo, "-c", "core.quotePath=false", "diff", "--no-color", "--no-ext-diff", "--no-textconv",
                      "--find-renames", $"-U{contextLines}", $"{baseRef}...{headRef}", "--",
                  })
             psi.ArgumentList.Add(a);
 
-        using var p = Process.Start(psi) ?? throw new SmartWizzException("failed to start git");
+        using Process p = Process.Start(psi) ?? throw new SmartWizzException(FailureKind.Git, "failed to start git");
+        // Cancelling the reads alone would leave git running.
+        using CancellationTokenRegistration kill = ct.Register(() => KillQuietly(p));
         // Both streams drained concurrently so a full stderr pipe cannot block git.
         Task<string> stderr = p.StandardError.ReadToEndAsync(ct);
         string stdout = await p.StandardOutput.ReadToEndAsync(ct);
         await p.WaitForExitAsync(ct);
+        ct.ThrowIfCancellationRequested(); // a killed git must surface as cancellation, not a git error
         if (p.ExitCode != 0)
-            throw new SmartWizzException($"git diff failed ({p.ExitCode}): {(await stderr).Trim()}");
+            throw new SmartWizzException(FailureKind.Git, $"git diff failed ({p.ExitCode}): {(await stderr).Trim()}");
         return stdout;
+    }
+
+    static void KillQuietly(Process process)
+    {
+        try
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        catch (InvalidOperationException)
+        {
+            // Already exited: nothing to stop.
+        }
     }
 
     [GeneratedRegex(@"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")]
@@ -54,12 +71,12 @@ public static partial class GitDiff
         int newLine = 0;
         bool inHunk = false;
 
-        foreach (var line in diff.Split('\n'))
+        foreach (string line in diff.Split('\n'))
         {
             if (line.StartsWith("diff --git "))
             {
                 // Path is fixed up by the "+++" line; this fallback covers binary/mode-only entries.
-                var idx = line.LastIndexOf(" b/", StringComparison.Ordinal);
+                int idx = line.LastIndexOf(" b/", StringComparison.Ordinal);
                 cur = new FileDiff { Path = Unquote(idx >= 0 ? line[(idx + 3)..] : line) };
                 files.Add(cur);
                 inHunk = false;
@@ -71,15 +88,16 @@ public static partial class GitDiff
             {
                 if (line.StartsWith("+++ "))
                 {
-                    var p = Unquote(line[4..]);
+                    string p = Unquote(line[4..]);
                     if (p == "/dev/null") cur.IsDeleted = true;
                     else cur.Path = p.StartsWith("b/") ? p[2..] : p;
                 }
+                else if (line.StartsWith("rename to ")) cur.Path = Unquote(line["rename to ".Length..]);
                 else if (line.StartsWith("deleted file mode")) cur.IsDeleted = true;
                 else if (line.StartsWith("Binary files ")) cur.IsBinary = true;
             }
 
-            var m = HunkHeader().Match(line);
+            Match m = HunkHeader().Match(line);
             if (m.Success)
             {
                 newLine = int.Parse(m.Groups[1].Value);
@@ -93,6 +111,7 @@ public static partial class GitDiff
             {
                 case ' ':
                 case '+':
+                    if (line[0] == '+') cur.AddedLines.Add(newLine);
                     cur.NewLines[newLine] = line[1..];
                     cur.Annotated.Append($"{newLine,6} |{line}\n");
                     newLine++;
@@ -110,7 +129,7 @@ public static partial class GitDiff
 
     public static bool IsExcluded(string path, IEnumerable<string> patterns)
     {
-        var name = System.IO.Path.GetFileName(path);
+        string name = System.IO.Path.GetFileName(path);
         return patterns.Any(p => FileSystemName.MatchesSimpleExpression(p, path, ignoreCase: true)
                                  || FileSystemName.MatchesSimpleExpression(p, name, ignoreCase: true));
     }

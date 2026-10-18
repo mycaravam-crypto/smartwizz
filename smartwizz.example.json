@@ -20,6 +20,7 @@
     // "project": "MyProject",
     // "repositoryId": "MyRepo",
     // "pullRequestId": 123,
-    "apiVersion": "6.0" // 5.0 for Azure DevOps Server 2019
+    "apiVersion": "6.0", // 5.0 for Azure DevOps Server 2019
+    "timeoutSeconds": 60
   }
 }

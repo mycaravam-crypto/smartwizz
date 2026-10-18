@@ -75,7 +75,7 @@ README.md
 ## Validation
 
 - Whole reply not parseable as `{ "findings": [...] }` → execution failure (exit 2).
-- Individual finding invalid → dropped and counted as rejected: unknown severity, empty fields, file not in the reviewed batch, `startLine`/`endLine` not a visible new-side line in the diff, `endLine < startLine`, confidence out of range.
+- Individual finding invalid → dropped and counted as rejected: unknown severity, empty fields, file not in the reviewed batch, `startLine` not an added line, `endLine` before `startLine` or outside the contiguous visible lines of the hunk, confidence out of range.
 - Findings below `review.minConfidence` (default 0.5) are dropped.
 - Fingerprint = first 16 hex of SHA-256 over `ruleId | filePath | whitespace-normalized text of startLine`. Uses line *content*, not number, so it survives unrelated line shifts on rerun.
 - Dedupe by fingerprint, keeping the highest severity then confidence.
@@ -106,7 +106,8 @@ README.md
 |------|---------|
 | 0 | Review completed; no finding at/above `--fail-on` (or no threshold set) |
 | 1 | Review completed; at least one finding at/above `--fail-on` |
-| 2 | Execution failure: bad args/config, git error, provider error, invalid model output, publish error |
+| 2 | Execution failure, labelled by kind: usage, configuration, git, provider, timeout, invalid-model-output, publish |
+| 130 | Cancelled (SIGINT/SIGTERM); git killed, no partial report |
 
 ## Tests
 

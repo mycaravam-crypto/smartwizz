@@ -27,12 +27,12 @@ public static class Report
     {
         w.WriteLine($"SmartWizz: {r.Findings.Count} finding(s) in {r.ReviewedFiles} reviewed file(s); " +
                     $"{r.SkippedFiles.Count} skipped file(s), {r.Rejected.Count} rejected finding(s).");
-        foreach (var f in r.Findings)
+        foreach (Finding f in r.Findings)
         {
-            var lines = f.EndLine is { } e ? $"{f.StartLine}-{e}" : $"{f.StartLine}";
+            string lines = f.EndLine is { } e ? $"{f.StartLine}-{e}" : $"{f.StartLine}";
             w.WriteLine();
             w.WriteLine($"[{f.Severity.ToString().ToUpperInvariant()}] {f.FilePath}:{lines}  {f.Title}");
-            foreach (var line in f.Message.Split('\n'))
+            foreach (string line in f.Message.Split('\n'))
                 w.WriteLine($"    {line.TrimEnd()}");
             w.WriteLine($"    ({f.RuleId}, confidence {f.Confidence:0.00}, fp {f.Fingerprint})");
         }

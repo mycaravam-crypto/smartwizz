@@ -1,0 +1,38 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{json,yml,yaml,csproj,props,slnx,xml}]
+indent_size = 2
+
+[*.md]
+# Two trailing spaces are a markdown line break.
+trim_trailing_whitespace = false
+
+[*.cs]
+# ENGINEERING_STANDARD 9: var only when the type is apparent.
+csharp_style_var_for_built_in_types = false:warning
+csharp_style_var_when_type_is_apparent = true:warning
+csharp_style_var_elsewhere = false:warning
+dotnet_diagnostic.IDE0007.severity = warning
+dotnet_diagnostic.IDE0008.severity = warning
+
+csharp_style_namespace_declarations = file_scoped:warning
+dotnet_diagnostic.IDE0161.severity = warning
+
+# ENGINEERING_STANDARD 2.4: no unused code.
+dotnet_diagnostic.IDE0005.severity = warning # unnecessary using
+dotnet_diagnostic.IDE0035.severity = warning # unreachable code
+dotnet_diagnostic.IDE0051.severity = warning # unused private member
+dotnet_diagnostic.IDE0052.severity = warning # unread private member
+dotnet_diagnostic.IDE0060.severity = warning # unused parameter
+
+# ENGINEERING_STANDARD 1.2: immutability by default.
+dotnet_style_readonly_field = true:warning
+dotnet_diagnostic.IDE0044.severity = warning

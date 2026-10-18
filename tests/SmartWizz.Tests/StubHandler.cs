@@ -9,7 +9,7 @@ public sealed class StubHandler(Func<HttpRequestMessage, string?, HttpResponseMe
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+        string? body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
         Requests.Add((request, body));
         return respond(request, body);
     }

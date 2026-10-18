@@ -13,7 +13,7 @@ public sealed class Provider(HttpClient http, ProviderConfig cfg, string? apiKey
     public async Task<string> CompleteAsync(string system, string user, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(cfg.Endpoint) || string.IsNullOrWhiteSpace(cfg.Model))
-            throw new SmartWizzException("provider.endpoint and provider.model must be configured");
+            throw new SmartWizzException(FailureKind.Configuration, "provider.endpoint and provider.model must be configured");
 
         using var req = new HttpRequestMessage(HttpMethod.Post, cfg.Endpoint)
         {
@@ -30,7 +30,7 @@ public sealed class Provider(HttpClient http, ProviderConfig cfg, string? apiKey
             if (cfg.ApiKeyHeader is null)
                 req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
             else if (!req.Headers.TryAddWithoutValidation(cfg.ApiKeyHeader, apiKey))
-                throw new SmartWizzException($"provider.apiKeyHeader is not a valid request header: {cfg.ApiKeyHeader}");
+                throw new SmartWizzException(FailureKind.Configuration, $"provider.apiKeyHeader is not a valid request header: {cfg.ApiKeyHeader}");
         }
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -46,26 +46,26 @@ public sealed class Provider(HttpClient http, ProviderConfig cfg, string? apiKey
         }
         catch (OperationCanceledException e) when (!ct.IsCancellationRequested)
         {
-            throw new SmartWizzException($"provider timed out after {cfg.TimeoutSeconds}s", e);
+            throw new SmartWizzException(FailureKind.Timeout, $"provider timed out after {cfg.TimeoutSeconds}s", e);
         }
         catch (HttpRequestException e)
         {
-            throw new SmartWizzException($"provider request failed: {e.Message}", e);
+            throw new SmartWizzException(FailureKind.Provider, $"provider request failed: {e.Message}", e);
         }
 
         if (status is < 200 or > 299)
-            throw new SmartWizzException($"provider returned {status}: {Truncate(body, 500)}");
+            throw new SmartWizzException(FailureKind.Provider, $"provider returned {status}: {Truncate(body, 500)}");
         try
         {
-            using JsonDocument doc = JsonDocument.Parse(body);
+            using var doc = JsonDocument.Parse(body);
             string? content = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
             return string.IsNullOrWhiteSpace(content)
-                ? throw new SmartWizzException("provider returned empty content")
+                ? throw new SmartWizzException(FailureKind.Provider, "provider returned empty content")
                 : content;
         }
         catch (Exception e) when (e is JsonException or KeyNotFoundException or IndexOutOfRangeException or InvalidOperationException)
         {
-            throw new SmartWizzException($"provider returned unexpected response: {Truncate(body, 500)}", e);
+            throw new SmartWizzException(FailureKind.Provider, $"provider returned unexpected response: {Truncate(body, 500)}", e);
         }
     }
 
