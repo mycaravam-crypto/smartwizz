@@ -86,13 +86,13 @@ public class AzureDevOpsTests
         {
             value = new object[]
             {
-                new { comments = new[] { new { content = AzureDevOpsPublisher.CommentText(F("old")) } } },
+                new { comments = new[] { new { content = AzureDevOpsPublisher.CommentText(F("00000000000000aa")) } } },
                 new { comments = Array.Empty<object>() },
             },
         });
         var h = new StubHandler((req, _) => req.Method == HttpMethod.Get ? StubHandler.Json(existing) : StubHandler.Json("{}"));
 
-        (int posted, int present) = await new AzureDevOpsPublisher(new HttpClient(h), Cfg, "tok").PublishAsync([F("old"), F("new")], default);
+        (int posted, int present) = await new AzureDevOpsPublisher(new HttpClient(h), Cfg, "tok").PublishAsync([F("00000000000000aa"), F("00000000000000bb")], default);
 
         Assert.Equal((1, 1), (posted, present));
         (HttpRequestMessage Request, string? Body) post = h.Requests.Single(r => r.Request.Method == HttpMethod.Post);
@@ -100,7 +100,7 @@ public class AzureDevOpsTests
             post.Request.RequestUri!.AbsoluteUri);
         Assert.Equal("Basic " + Convert.ToBase64String("tok"u8.ToArray().Prepend((byte)':').ToArray()),
             post.Request.Headers.Authorization!.ToString());
-        Assert.Contains("SmartWizz fingerprint: new", post.Body);
+        Assert.Contains("SmartWizz fingerprint: 00000000000000bb", post.Body);
     }
 
     [Fact]
