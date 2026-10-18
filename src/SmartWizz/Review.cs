@@ -24,6 +24,8 @@ public sealed record SkippedFile(string Path, string Reason);
 public sealed class ReviewResult
 {
     public int ReviewedFiles { get; set; }
+    // Models that actually answered, in first-use order; more than one means a fallback was used.
+    public List<string> Models { get; } = [];
     public List<Finding> Findings { get; set; } = [];
     public List<SkippedFile> SkippedFiles { get; } = [];
     public List<string> Rejected { get; } = [];
@@ -67,8 +69,9 @@ public static partial class Review
         // Sequential on purpose: keeps request rate and provider quota use predictable.
         foreach (List<FileDiff> b in batches)
         {
-            string reply = await provider.CompleteAsync(systemPrompt, BuildUserMessage(b, files.Select(f => f.Path)), ct);
-            all.AddRange(Parse(reply, b.ToDictionary(f => f.Path), cfg.MinConfidence, result.Rejected));
+            Completion reply = await provider.CompleteAsync(systemPrompt, BuildUserMessage(b, files.Select(f => f.Path)), ct);
+            if (!result.Models.Contains(reply.Model)) result.Models.Add(reply.Model);
+            all.AddRange(Parse(reply.Content, b.ToDictionary(f => f.Path), cfg.MinConfidence, result.Rejected));
             result.ReviewedFiles += b.Count;
         }
 

@@ -54,6 +54,8 @@ public sealed class Config
     {
         string? error =
             cfg.Provider.TimeoutSeconds <= 0 ? "provider.timeoutSeconds must be greater than 0"
+            : cfg.Provider.MaxRetries is < 0 or > 5 ? "provider.maxRetries must be between 0 and 5"
+            : cfg.Provider.FallbackModels.Any(string.IsNullOrWhiteSpace) ? "provider.fallbackModels must not contain empty names"
             : cfg.AzureDevOps.TimeoutSeconds <= 0 ? "azureDevOps.timeoutSeconds must be greater than 0"
             : cfg.Review.ContextLines < 0 ? "review.contextLines must not be negative"
             : cfg.Review.MaxCharsPerRequest <= 0 ? "review.maxCharsPerRequest must be greater than 0"
@@ -101,6 +103,10 @@ public sealed class ProviderConfig
     public int TimeoutSeconds { get; set; } = 180;
     // null = "Authorization: Bearer <key>"; otherwise the raw key in this header (e.g. "api-key" for Azure OpenAI).
     public string? ApiKeyHeader { get; set; }
+    // Retries per model on 429/5xx or a dropped connection, before moving to the next fallback model.
+    public int MaxRetries { get; set; } = 2;
+    // Tried in order, same endpoint and key, only when the previous model stays overloaded/unavailable.
+    public string[] FallbackModels { get; set; } = [];
 }
 
 public sealed class ReviewConfig

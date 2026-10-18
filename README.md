@@ -49,6 +49,7 @@ See [`smartwizz.example.json`](smartwizz.example.json). Notable settings:
 - `review.minConfidence` — findings below this are dropped (default 0.5).
 - `review.exclude` — glob patterns matched against path and file name; replaces the built-in list (lockfiles, minified, generated, migrations).
 - `provider.temperature` — `null` to omit for models that reject it.
+- `provider.maxRetries` (default 2) and `provider.fallbackModels` (default none) — see *Overload handling* below.
 - `review.guidelines` — path (relative to the config file) to a markdown engineering standard, e.g. [`ENGINEERING_STANDARD.md`](ENGINEERING_STANDARD.md). Violations come back as findings with `ruleId` `standard-*`. Keep it in the trusted SmartWizz repo in CI, so a PR can't rewrite the rules it's checked against.
 
 Secrets are read only from the environment. For local runs you can put them in a git-ignored `./.env` (see [`.env.example`](.env.example)). Variables that are already set take precedence.
@@ -57,6 +58,16 @@ Secrets are read only from the environment. For local runs you can put them in a
 |---|---|
 | `SMARTWIZZ_API_KEY` | Provider bearer token |
 | `SMARTWIZZ_AZDO_TOKEN` or `SYSTEM_ACCESSTOKEN` | Azure DevOps PAT / pipeline token |
+
+## Overload handling
+
+Hosted models regularly answer "high demand" (503) or "rate limited" (429), and in CI that would fail a PR for reasons unrelated to the code. So:
+
+1. **Retry:** on 429, 500, 502, 503, 504 or a dropped connection, the same model is retried up to `provider.maxRetries` times. The wait follows the server's `Retry-After`, otherwise 2 s then 4 s, capped at 30 s.
+2. **Fall back:** if the model stays unavailable, the next entry in `provider.fallbackModels` is tried, with the same endpoint and key. Capacity is usually per model, so this tends to succeed immediately.
+3. **Never mask real errors:** 400, 401, 403, 404 (wrong key, bad request, unknown model), timeouts and malformed answers fail at once and are not retried.
+
+Every retry and fallback is logged to stderr. The report and JSON name the models that actually reviewed (`Reviewed by:` / `"models"`), because a fallback model may review differently.
 
 ## Output
 
