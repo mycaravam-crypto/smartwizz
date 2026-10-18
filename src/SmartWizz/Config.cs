@@ -67,7 +67,7 @@ public sealed class Config
         }
         catch (JsonException e)
         {
-            throw new SmartWizzException($"invalid config {path}: {e.Message}");
+            throw new SmartWizzException($"invalid config {path}: {e.Message}", e);
         }
     }
 }
@@ -106,4 +106,4 @@ public sealed class AzureDevOpsConfig
 }
 
 // Expected execution failures: printed without a stack trace, exit code 2.
-public sealed class SmartWizzException(string message) : Exception(message);
+public sealed class SmartWizzException(string message, Exception? innerException = null) : Exception(message, innerException);

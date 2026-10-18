@@ -119,7 +119,7 @@ public static partial class Review
 
         JsonDocument doc;
         try { doc = JsonDocument.Parse(reply[start..(end + 1)]); }
-        catch (JsonException e) { throw new SmartWizzException($"invalid model output: {e.Message}"); }
+        catch (JsonException e) { throw new SmartWizzException($"invalid model output: {e.Message}", e); }
 
         using (doc)
         {
@@ -171,7 +171,8 @@ public static partial class Review
         if (conf < minConfidence)
             return Reject(out reason, $"{path}:{start}: below minConfidence");
 
-        return new Finding(ruleId, sev.Value, Cap(title, 200), Cap(message, 4000), path, start.Value,
+        ruleId = Sanitize(ruleId, false);
+        return new Finding(ruleId, sev.Value, Cap(Sanitize(title, false), 200), Cap(Sanitize(message, true), 4000), path, start.Value,
             end == start ? null : end, conf.Value, Fingerprint(ruleId, path, startText));
     }
 
@@ -180,6 +181,16 @@ public static partial class Review
         reason = why;
         return null;
     }
+
+    // Model text reaches terminals, CI logs and PR comments: drop control characters (e.g. ANSI escapes).
+    static string Sanitize(string text, bool keepNewlines) =>
+        (keepNewlines ? ControlExceptNewline() : Control()).Replace(text.Replace("\r\n", "\n"), "");
+
+    [GeneratedRegex(@"\p{Cc}")]
+    private static partial Regex Control();
+
+    [GeneratedRegex(@"[\p{Cc}-[\n]]")]
+    private static partial Regex ControlExceptNewline();
 
     static string Cap(string s, int n) => s.Length <= n ? s : s[..n] + "...";
 

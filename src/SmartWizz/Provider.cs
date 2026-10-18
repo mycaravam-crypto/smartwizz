@@ -39,13 +39,13 @@ public sealed class Provider(HttpClient http, ProviderConfig cfg, string? apiKey
             status = (int)res.StatusCode;
             body = await res.Content.ReadAsStringAsync(cts.Token);
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException e) when (!ct.IsCancellationRequested)
         {
-            throw new SmartWizzException($"provider timed out after {cfg.TimeoutSeconds}s");
+            throw new SmartWizzException($"provider timed out after {cfg.TimeoutSeconds}s", e);
         }
         catch (HttpRequestException e)
         {
-            throw new SmartWizzException($"provider request failed: {e.Message}");
+            throw new SmartWizzException($"provider request failed: {e.Message}", e);
         }
 
         if (status is < 200 or > 299)
@@ -60,7 +60,7 @@ public sealed class Provider(HttpClient http, ProviderConfig cfg, string? apiKey
         }
         catch (Exception e) when (e is JsonException or KeyNotFoundException or IndexOutOfRangeException or InvalidOperationException)
         {
-            throw new SmartWizzException($"provider returned unexpected response: {Truncate(body, 500)}");
+            throw new SmartWizzException($"provider returned unexpected response: {Truncate(body, 500)}", e);
         }
     }
 

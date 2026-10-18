@@ -119,3 +119,18 @@ public class ReviewTests
         Assert.Equal(("origin/main", Severity.High, true), (o.Base, o.FailOn, o.Publish));
     }
 }
+
+public class SanitizeTests
+{
+    [Fact]
+    public void Control_characters_are_stripped_from_model_text()
+    {
+        var files = GitDiff.Parse(GitDiffTests.Sample).ToDictionary(f => f.Path);
+        const string reply = """
+            {"findings":[{"ruleId":"r\u0007","severity":"low","title":"a\u001b[31mred\r\nb","message":"x\r\ny\u0000",
+             "filePath":"src/Calc.cs","startLine":12,"confidence":0.9}]}
+            """;
+        var f = Assert.Single(Review.Parse(reply, files, 0.5, []));
+        Assert.Equal(("r", "a[31mredb", "x\ny"), (f.RuleId, f.Title, f.Message));
+    }
+}

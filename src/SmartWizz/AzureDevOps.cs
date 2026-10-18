@@ -50,7 +50,7 @@ public sealed class AzureDevOpsPublisher(HttpClient http, AzureDevOpsConfig cfg,
             }
             catch (HttpRequestException e)
             {
-                throw new SmartWizzException($"Azure DevOps request failed: {e.Message}");
+                throw new SmartWizzException($"Azure DevOps request failed: {e.Message}", e);
             }
         }
     }
@@ -69,7 +69,7 @@ public sealed class AzureDevOpsPublisher(HttpClient http, AzureDevOpsConfig cfg,
         }
         catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException)
         {
-            throw new SmartWizzException("Azure DevOps returned an unexpected threads response");
+            throw new SmartWizzException("Azure DevOps returned an unexpected threads response", e);
         }
         return sb.ToString();
     }
