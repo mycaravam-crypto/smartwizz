@@ -123,7 +123,7 @@ xUnit, no live calls (stub `HttpMessageHandler`):
 
 ## Out of Scope
 
-GitHub, multiple providers, web UI, auto-fix/approve/merge, agentic browsing, database/analytics, RAG/indexing, rule engines. Also deferred: parallel requests, `pullRequestThreadContext` iteration tracking — add when real usage needs them.
+Multiple providers, web UI, auto-fix/approve/merge, agentic browsing, database/analytics, RAG/indexing, rule engines. Also deferred: parallel requests, `pullRequestThreadContext` iteration tracking — add when real usage needs them.
 
 ## Definition of Done
 

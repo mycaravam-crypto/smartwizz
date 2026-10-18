@@ -3,11 +3,15 @@
 #   on: pull_request
 #   jobs:
 #     smartwizz:
+#       permissions:
+#         contents: read
+#         pull-requests: write   # inline review comments
 #       uses: mycaravam-crypto/smartwizz/.github/workflows/review.yml@main
 #       secrets:
 #         SMARTWIZZ_API_KEY: ${{ secrets.SMARTWIZZ_API_KEY }}
 #
-# Report-only: results go to the job summary and a JSON artifact. Nothing is posted to the PR.
+# Results go to the job summary and a JSON artifact and, with `comments` (default on), to one PR review with an
+# inline comment per new finding. The review never approves or requests changes.
 name: SmartWizz review
 
 on:
@@ -37,17 +41,22 @@ on:
         description: SmartWizz branch, tag or SHA to run.
         type: string
         default: main
+      comments:
+        description: Post new findings as inline comments of one PR review.
+        type: boolean
+        default: true
     secrets:
       SMARTWIZZ_API_KEY:
         required: false
-
-permissions:
-  contents: read
 
 jobs:
   review:
     if: github.event_name == 'pull_request'
     runs-on: ${{ fromJSON(inputs.runner) }}
+    # Least privilege for a review: read the code, write review comments. The caller must grant both.
+    permissions:
+      contents: read
+      pull-requests: write
     timeout-minutes: 20
     steps:
       - name: Check out pull request
@@ -81,10 +90,15 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           FAIL_ON: ${{ inputs.fail-on }}
           CONFIG: ${{ inputs.config }}
+          COMMENTS: ${{ inputs.comments }}
+          GITHUB_TOKEN: ${{ github.token }}
+          SMARTWIZZ_GITHUB_PR: ${{ github.event.pull_request.number }}
+          SMARTWIZZ_GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           args=(--repo ../pr --base "origin/$BASE_REF" --head "$HEAD_SHA" --config "$CONFIG" --json ../smartwizz-report.json)
           if [ -n "$FAIL_ON" ]; then args+=(--fail-on "$FAIL_ON"); fi
+          if [ "$COMMENTS" = "true" ]; then args+=(--publish-github); fi
           dotnet run --project src/SmartWizz -c Release -- "${args[@]}" | tee ../smartwizz-report.txt
 
       # Indented code block, not a fence: model text cannot break out of it into rendered markdown.

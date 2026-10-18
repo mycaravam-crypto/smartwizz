@@ -138,9 +138,15 @@ on: pull_request
 
 jobs:
   smartwizz:
+    # Fork PRs get no secrets and a read-only token: skip them.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: write                # inline review comments
     uses: mycaravam-crypto/smartwizz/.github/workflows/review.yml@main
     with:
       fail-on: high                       # optional; omit for report-only
+      # comments: false                   # job summary + artifact only
       # Internal API on a self-hosted runner:
       # runner: '["self-hosted", "linux"]'
       # endpoint: https://llm.internal.example/v1/chat/completions
@@ -151,7 +157,14 @@ jobs:
 
 Then add the `SMARTWIZZ_API_KEY` secret to that repository (*Settings → Secrets and variables → Actions*), or once at organization level.
 
-Each PR gets a review in the job summary plus a `smartwizz-report` JSON artifact. With `fail-on`, the check fails and can be made required in branch protection. The workflow reviews `base...head` of the PR, checks out SmartWizz itself for config and the engineering standard, and has read-only permissions. It does not post PR comments; that would need a GitHub publisher (not built yet).
+What each PR gets:
+- **Inline comments:** one PR review (`event: COMMENT`) with a comment on each new finding's line. It never approves and never requests changes. Comments sit on the finding's start line, which is always an added line; a multi-line range is named in the text, because a range could reach past GitHub's own diff context and get the whole review rejected.
+- **Job summary and artifact:** the full report in the job summary, plus a `smartwizz-report` JSON artifact.
+- **Required check:** with `fail-on`, the check fails and can be made required in branch protection.
+
+Reruns don't repeat comments. Existing review comments are read first (all pages), and findings whose fingerprint is already there are skipped. If that lookup fails, nothing is posted. `@mentions` in model text are neutralized, so a review can't ping people.
+
+The workflow reviews `base...head` of the PR and checks out SmartWizz itself for config and the engineering standard. Its token can read code and write review comments, nothing else. Outside Actions, `--publish-github` needs `GITHUB_TOKEN` (or `SMARTWIZZ_GITHUB_TOKEN`), `GITHUB_REPOSITORY`, `SMARTWIZZ_GITHUB_PR` and `SMARTWIZZ_GITHUB_SHA`, or the `gitHub.*` config keys.
 
 Pin `@main` to a tag or commit SHA if you want reviews to stay unchanged until you upgrade deliberately (also pass the same value as `smartwizz-ref`).
 

@@ -1,11 +1,10 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 
 namespace SmartWizz;
 
-public sealed partial class AzureDevOpsPublisher(HttpClient http, AzureDevOpsConfig cfg, string? token)
+public sealed class AzureDevOpsPublisher(HttpClient http, AzureDevOpsConfig cfg, string? token)
 {
     public async Task<(int Posted, int AlreadyPresent)> PublishAsync(IReadOnlyList<Finding> findings, CancellationToken ct)
     {
@@ -75,9 +74,6 @@ public sealed partial class AzureDevOpsPublisher(HttpClient http, AzureDevOpsCon
         }
     }
 
-    [GeneratedRegex(@"SmartWizz fingerprint: ([0-9a-f]{16})")]
-    private static partial Regex FingerprintMarker();
-
     // Every fingerprint in any comment of any thread (including replies). A response that is not exactly the
     // documented shape fails the publish instead of being read as "no existing threads".
     public static HashSet<string> ParseFingerprints(string threadsJson)
@@ -97,10 +93,7 @@ public sealed partial class AzureDevOpsPublisher(HttpClient http, AzureDevOpsCon
                 foreach (JsonElement comment in comments.EnumerateArray())
                 {
                     if (comment.TryGetProperty("content", out JsonElement content) && content.ValueKind == JsonValueKind.String)
-                    {
-                        foreach (Match m in FingerprintMarker().Matches(content.GetString()!))
-                            fingerprints.Add(m.Groups[1].Value);
-                    }
+                        fingerprints.UnionWith(PrComment.Fingerprints(content.GetString()!));
                 }
             }
         }
@@ -111,17 +104,9 @@ public sealed partial class AzureDevOpsPublisher(HttpClient http, AzureDevOpsCon
         return fingerprints;
     }
 
-    // Visible on purpose: HTML comments are not reliably preserved across server versions.
-    public static string Marker(Finding f) => $"SmartWizz fingerprint: {f.Fingerprint}";
-
-    public static string CommentText(Finding f) =>
-        $"**[{f.Severity}] {f.Title}**\n\n{f.Message}\n\n" +
-        $"_`{f.RuleId}` · confidence {f.Confidence:0.00} · AI-generated review comment, verify before acting._\n\n" +
-        $"<sub>{Marker(f)}</sub>";
-
     public static object ThreadPayload(Finding f) => new
     {
-        comments = new[] { new { parentCommentId = 0, content = CommentText(f), commentType = 1 } },
+        comments = new[] { new { parentCommentId = 0, content = PrComment.Text(f), commentType = 1 } },
         status = 1, // active
         threadContext = new
         {
