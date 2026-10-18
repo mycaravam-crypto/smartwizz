@@ -29,7 +29,16 @@ dotnet run --project src/SmartWizz -- --repo ../my-repo --base origin/main
 | `--fail-on <severity>` | Exit 1 if any finding is at/above `low`/`medium`/`high`/`critical`. |
 | `--publish` | Post findings as Azure DevOps PR threads. |
 
-**Exit codes:** `0` review done (nothing at/above threshold) · `1` findings at/above `--fail-on` · `2` execution failure (bad args/config, git, provider, invalid model output, publishing).
+**Exit codes:**
+
+| Code | Meaning |
+|---|---|
+| `0` | Review completed; nothing at/above `--fail-on` (or no threshold) |
+| `1` | Review completed; findings at/above `--fail-on` |
+| `2` | Execution failure. The message names the kind: `[usage]`, `[configuration]`, `[git]`, `[provider]`, `[timeout]`, `[invalid-model-output]`, `[publish]` |
+| `130` | Cancelled (Ctrl+C / SIGTERM). Outstanding requests stop, git is killed, and no partial review is reported. A second signal exits immediately. |
+
+A failure in any request batch fails the whole run; a partial review is never reported as complete.
 
 ## Configuration
 
@@ -67,7 +76,13 @@ Console report plus, with `--json`:
 }
 ```
 
-`endLine` appears when a finding spans lines. Findings from the model are rejected (and listed) if the file isn't in the diff, the lines aren't visible new-side lines, or a field is missing/invalid. Unparseable model output fails the run with exit 2.
+`endLine` appears when a finding spans lines. Findings from the model are rejected (and listed) if:
+- the file isn't in the reviewed diff (paths like `/x`, `./x`, `b/x`, `x\y` are normalized first),
+- `startLine` isn't a line this change **added** (unchanged context lines don't count),
+- `endLine` is before `startLine` or leaves the contiguous lines shown in that hunk,
+- or a field is missing or invalid.
+
+Unparseable model output fails the run with exit 2 `[invalid-model-output]`.
 
 The `fingerprint` hashes rule, path, and the *content* of the start line, so it survives unrelated line shifts. It is used to dedupe within a run and to avoid re-posting the same thread on reruns.
 
@@ -75,7 +90,9 @@ The `fingerprint` hashes rule, path, and the *content* of the start line, so it 
 
 `--publish` posts one active thread per new finding on the PR's right-hand (new) side. Threads already carrying a finding's fingerprint are skipped.
 
-Connection settings come from `azureDevOps.*` in the config, falling back to the pipeline variables `System.CollectionUri`, `System.TeamProject`, `Build.Repository.ID`, and `System.PullRequest.PullRequestId`. `apiVersion` defaults to `6.0` (Server 2020+); use `5.0` for Server 2019. The token needs only code read and PR thread read/write.
+Connection settings come from `azureDevOps.*` in the config, falling back to the pipeline variables `System.CollectionUri`, `System.TeamProject`, `Build.Repository.ID`, and `System.PullRequest.PullRequestId`. `apiVersion` defaults to `6.0` (Server 2020+); use `5.0` for Server 2019. `timeoutSeconds` (default 60) bounds each request. The token needs only code read and PR thread read/write.
+
+Deduplication fails closed. The existing threads are read before anything is posted, and if that lookup fails, times out, or returns an unexpected shape, nothing is posted. The threads List API documents no paging in any version (it returns all threads). If a server paginates anyway (`x-ms-continuationtoken`), or `count` doesn't match the threads received, SmartWizz can't prove the list is complete, so it refuses to publish rather than risk duplicates. If a POST fails partway, the threads already posted are recognised on the next run.
 
 See [`pipelines/azure-pipelines.yml`](pipelines/azure-pipelines.yml) for a branch-policy build. It reviews `origin/<target>...HEAD^2`, the PR source tip, so line numbers match the PR view.
 
@@ -142,8 +159,15 @@ Security notes:
 
 ## Development
 
+Same checks as CI (`.github/workflows/ci.yml`):
+
 ```sh
-dotnet test
+dotnet format --verify-no-changes   # whitespace + .editorconfig style; run `dotnet format` to fix
+dotnet build -c Release             # analyzers + code style enforced, warnings are errors
+dotnet test -c Release
 ```
 
-Tests stub all HTTP. They make no live model or Azure DevOps calls. `Directory.Build.props` enables the recommended .NET analyzers and turns warnings into errors.
+- `global.json` pins the SDK.
+- `.editorconfig` encodes the mechanical rules of [`ENGINEERING_STANDARD.md`](ENGINEERING_STANDARD.md): explicit types unless obvious, no unused code, readonly fields.
+- Tests stub all HTTP and need no credentials. They make no live model or Azure DevOps calls.
+- One test starts a fake `git` (Linux only) to prove cancellation kills the git process.
