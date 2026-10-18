@@ -67,7 +67,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 10.0.x
+          global-json-file: smartwizz/global.json
 
       # Inputs go through env, never inline into the script, to rule out script injection.
       # Runs from the SmartWizz checkout: config, standard and any .env come from there, not from the PR.

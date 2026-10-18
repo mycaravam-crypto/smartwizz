@@ -14,14 +14,14 @@ public sealed class AzureDevOpsPublisher(HttpClient http, AzureDevOpsConfig cfg,
         if (string.IsNullOrEmpty(token))
             throw new SmartWizzException(FailureKind.Configuration, "set SMARTWIZZ_AZDO_TOKEN or SYSTEM_ACCESSTOKEN to publish");
 
-        var url = $"{cfg.CollectionUri.TrimEnd('/')}/{Uri.EscapeDataString(cfg.Project)}/_apis/git/repositories/" +
+        string url = $"{cfg.CollectionUri.TrimEnd('/')}/{Uri.EscapeDataString(cfg.Project)}/_apis/git/repositories/" +
                   $"{Uri.EscapeDataString(cfg.RepositoryId)}/pullRequests/{cfg.PullRequestId}/threads?api-version={cfg.ApiVersion}";
 
-        var existing = await SendAsync(new HttpRequestMessage(HttpMethod.Get, url), ct);
-        var existingText = ExistingCommentText(existing);
+        string existing = await SendAsync(new HttpRequestMessage(HttpMethod.Get, url), ct);
+        string existingText = ExistingCommentText(existing);
 
         int posted = 0, present = 0;
-        foreach (var f in findings)
+        foreach (Finding f in findings)
         {
             if (existingText.Contains(Marker(f), StringComparison.Ordinal))
             {
@@ -40,12 +40,12 @@ public sealed class AzureDevOpsPublisher(HttpClient http, AzureDevOpsConfig cfg,
         {
             // Basic with empty user works for both PATs and System.AccessToken.
             req.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes(":" + token)));
-            using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(cfg.TimeoutSeconds));
             try
             {
-                using var res = await http.SendAsync(req, timeout.Token);
-                var body = await res.Content.ReadAsStringAsync(timeout.Token);
+                using HttpResponseMessage res = await http.SendAsync(req, timeout.Token);
+                string body = await res.Content.ReadAsStringAsync(timeout.Token);
                 if (!res.IsSuccessStatusCode)
                     throw new SmartWizzException(FailureKind.Publish, $"Azure DevOps {req.Method} returned {(int)res.StatusCode}: {(body.Length > 300 ? body[..300] + "..." : body)}");
                 return body;
@@ -67,10 +67,10 @@ public sealed class AzureDevOpsPublisher(HttpClient http, AzureDevOpsConfig cfg,
         try
         {
             using var doc = JsonDocument.Parse(threadsJson);
-            foreach (var t in doc.RootElement.GetProperty("value").EnumerateArray())
-                if (t.TryGetProperty("comments", out var comments))
-                    foreach (var c in comments.EnumerateArray())
-                        if (c.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String)
+            foreach (JsonElement t in doc.RootElement.GetProperty("value").EnumerateArray())
+                if (t.TryGetProperty("comments", out JsonElement comments))
+                    foreach (JsonElement c in comments.EnumerateArray())
+                        if (c.TryGetProperty("content", out JsonElement content) && content.ValueKind == JsonValueKind.String)
                             sb.Append(content.GetString()).Append('\n');
         }
         catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException)

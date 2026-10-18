@@ -39,11 +39,11 @@ public sealed class Config
         if (env("SMARTWIZZ_ENDPOINT") is { Length: > 0 } endpoint) cfg.Provider.Endpoint = endpoint;
         if (env("SMARTWIZZ_MODEL") is { Length: > 0 } model) cfg.Provider.Model = model;
 
-        var az = cfg.AzureDevOps;
+        AzureDevOpsConfig az = cfg.AzureDevOps;
         az.CollectionUri ??= env("SYSTEM_COLLECTIONURI");
         az.Project ??= env("SYSTEM_TEAMPROJECT");
         az.RepositoryId ??= env("BUILD_REPOSITORY_ID");
-        if (az.PullRequestId is null && int.TryParse(env("SYSTEM_PULLREQUEST_PULLREQUESTID"), out var pr))
+        if (az.PullRequestId is null && int.TryParse(env("SYSTEM_PULLREQUEST_PULLREQUESTID"), out int pr))
             az.PullRequestId = pr;
 
         Validate(cfg);
@@ -67,13 +67,13 @@ public sealed class Config
     public static void LoadDotEnv(string path)
     {
         if (!File.Exists(path)) return;
-        foreach (var raw in File.ReadAllLines(path))
+        foreach (string raw in File.ReadAllLines(path))
         {
-            var line = raw.Trim();
-            var eq = line.IndexOf('=');
+            string line = raw.Trim();
+            int eq = line.IndexOf('=');
             if (line.StartsWith('#') || eq <= 0) continue;
-            var key = line[..eq].Trim();
-            var value = line[(eq + 1)..].Trim().Trim('"', '\'');
+            string key = line[..eq].Trim();
+            string value = line[(eq + 1)..].Trim().Trim('"', '\'');
             if (Environment.GetEnvironmentVariable(key) is null)
                 Environment.SetEnvironmentVariable(key, value);
         }

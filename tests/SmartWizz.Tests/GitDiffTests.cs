@@ -39,10 +39,10 @@ public class GitDiffTests
     [Fact]
     public void Parses_files_and_new_side_line_numbers()
     {
-        var files = GitDiff.Parse(Sample);
+        List<FileDiff> files = GitDiff.Parse(Sample);
 
         Assert.Equal(["src/Calc.cs", "old.txt", "logo.png", "web/package-lock.json"], files.Select(f => f.Path));
-        var calc = files[0];
+        FileDiff calc = files[0];
         Assert.Equal([10, 11, 12, 13, 14], calc.NewLines.Keys.Order());
         Assert.Equal("        var r = a + b;", calc.NewLines[12]);
         Assert.Equal([12, 13], calc.AddedLines.Order());
@@ -55,7 +55,7 @@ public class GitDiffTests
     [Fact]
     public void Added_line_starting_with_plus_plus_plus_is_content_not_header()
     {
-        var files = GitDiff.Parse("diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,0 +1,1 @@\n+++ b/evil\n");
+        List<FileDiff> files = GitDiff.Parse("diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,0 +1,1 @@\n+++ b/evil\n");
         Assert.Equal("x", files.Single().Path);
         Assert.Equal("++ b/evil", files[0].NewLines[1]);
     }
@@ -92,7 +92,7 @@ public class GitDiffTests
             new mode 100755
 
             """;
-        var files = GitDiff.Parse(diff);
+        List<FileDiff> files = GitDiff.Parse(diff);
 
         Assert.Equal(["new.cs", "new name.cs", "dir/moved.cs", "run.sh"], files.Select(f => f.Path));
         Assert.Equal([1, 2], files[0].AddedLines.Order());

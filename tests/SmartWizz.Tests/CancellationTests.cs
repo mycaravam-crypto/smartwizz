@@ -19,14 +19,18 @@ public class TimeoutTests
 {
     static readonly AzureDevOpsConfig AzCfg = new()
     {
-        CollectionUri = "https://tfs/", Project = "P", RepositoryId = "R", PullRequestId = 1, TimeoutSeconds = 1,
+        CollectionUri = "https://tfs/",
+        Project = "P",
+        RepositoryId = "R",
+        PullRequestId = 1,
+        TimeoutSeconds = 1,
     };
 
     [Fact]
     public async Task Hung_provider_times_out()
     {
         var provider = new Provider(new HttpClient(new HangingHandler()), new ProviderConfig { Endpoint = "http://x", Model = "m", TimeoutSeconds = 1 }, null);
-        var e = await Assert.ThrowsAsync<SmartWizzException>(() => provider.CompleteAsync("s", "u", default));
+        SmartWizzException e = await Assert.ThrowsAsync<SmartWizzException>(() => provider.CompleteAsync("s", "u", default));
         Assert.Equal(FailureKind.Timeout, e.Kind);
     }
 
@@ -43,7 +47,7 @@ public class TimeoutTests
     {
         var handler = new HangingHandler();
         var finding = new Finding("r", Severity.Low, "t", "m", "a.cs", 1, null, 1, "fp");
-        var e = await Assert.ThrowsAsync<SmartWizzException>(() =>
+        SmartWizzException e = await Assert.ThrowsAsync<SmartWizzException>(() =>
             new AzureDevOpsPublisher(new HttpClient(handler), AzCfg, "tok").PublishAsync([finding], default));
         Assert.Equal(FailureKind.Timeout, e.Kind);
         Assert.Equal(1, handler.Calls); // only the thread lookup; nothing posted
@@ -52,12 +56,12 @@ public class TimeoutTests
     [Fact]
     public async Task Failure_in_a_later_batch_fails_the_whole_review()
     {
-        var calls = 0;
+        int calls = 0;
         var stub = new StubHandler((_, _) => ++calls == 1
             ? StubHandler.Chat("""{"findings":[]}""")
             : StubHandler.Json("busy", System.Net.HttpStatusCode.ServiceUnavailable));
         var provider = new Provider(new HttpClient(stub), new ProviderConfig { Endpoint = "http://x", Model = "m" }, null);
-        var files = GitDiff.Parse("""
+        List<FileDiff> files = GitDiff.Parse("""
             diff --git a/a.cs b/a.cs
             --- a/a.cs
             +++ b/a.cs
@@ -71,7 +75,7 @@ public class TimeoutTests
 
             """);
 
-        var e = await Assert.ThrowsAsync<SmartWizzException>(() =>
+        SmartWizzException e = await Assert.ThrowsAsync<SmartWizzException>(() =>
             Review.RunAsync(files, new ReviewConfig { MaxCharsPerRequest = 40 }, provider, "sys", default));
         Assert.Equal(FailureKind.Provider, e.Kind);
         Assert.Equal(2, calls);
@@ -85,11 +89,11 @@ public class TimeoutTests
     [InlineData("""{ "review": { "minConfidence": 1.5 } }""")]
     public void Invalid_numeric_settings_fail_at_startup(string json)
     {
-        var path = Path.GetTempFileName();
+        string path = Path.GetTempFileName();
         File.WriteAllText(path, json);
         try
         {
-            var e = Assert.Throws<SmartWizzException>(() => Config.Load(path, _ => null));
+            SmartWizzException e = Assert.Throws<SmartWizzException>(() => Config.Load(path, _ => null));
             Assert.Equal(FailureKind.Configuration, e.Kind);
         }
         finally { File.Delete(path); }

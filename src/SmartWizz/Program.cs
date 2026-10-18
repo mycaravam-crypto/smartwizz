@@ -45,8 +45,8 @@ public static class Program
             context.Cancel = !cts.IsCancellationRequested;
             cts.Cancel();
         }
-        using PosixSignalRegistration sigint = PosixSignalRegistration.Create(PosixSignal.SIGINT, Cancel);
-        using PosixSignalRegistration sigterm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, Cancel);
+        using var sigint = PosixSignalRegistration.Create(PosixSignal.SIGINT, Cancel);
+        using var sigterm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, Cancel);
 
         try
         {
@@ -85,7 +85,7 @@ public static class Program
     static async Task<int> RunAsync(Options opt, CancellationToken ct)
     {
         Config.LoadDotEnv(".env");
-        Config cfg = Config.Load(opt.ConfigPath, Environment.GetEnvironmentVariable);
+        var cfg = Config.Load(opt.ConfigPath, Environment.GetEnvironmentVariable);
         if (Uri.TryCreate(cfg.Provider.Endpoint, UriKind.Absolute, out Uri? endpoint) && endpoint.Scheme == Uri.UriSchemeHttp && !endpoint.IsLoopback)
             Console.Error.WriteLine("warning: provider endpoint uses plain HTTP; code and API key are sent unencrypted");
         List<FileDiff> files = GitDiff.Parse(await GitDiff.RunAsync(opt.Repo, opt.Base!, opt.Head, cfg.Review.ContextLines, ct));
@@ -133,7 +133,7 @@ public sealed record Options
     public static Options Parse(string[] args)
     {
         var o = new Options();
-        for (var i = 0; i < args.Length; i++)
+        for (int i = 0; i < args.Length; i++)
         {
             string Value() => ++i < args.Length ? args[i] : throw new SmartWizzException(FailureKind.Usage, $"{args[i - 1]} needs a value");
             o = args[i] switch

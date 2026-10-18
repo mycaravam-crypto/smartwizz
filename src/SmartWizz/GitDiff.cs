@@ -29,14 +29,14 @@ public static partial class GitDiff
             StandardOutputEncoding = Encoding.UTF8,
         };
         // --no-ext-diff / --no-textconv: never let repository config run commands.
-        foreach (var a in new[]
+        foreach (string? a in new[]
                  {
                      "-C", repo, "-c", "core.quotePath=false", "diff", "--no-color", "--no-ext-diff", "--no-textconv",
                      "--find-renames", $"-U{contextLines}", $"{baseRef}...{headRef}", "--",
                  })
             psi.ArgumentList.Add(a);
 
-        using var p = Process.Start(psi) ?? throw new SmartWizzException(FailureKind.Git, "failed to start git");
+        using Process p = Process.Start(psi) ?? throw new SmartWizzException(FailureKind.Git, "failed to start git");
         // Cancelling the reads alone would leave git running.
         using CancellationTokenRegistration kill = ct.Register(() => KillQuietly(p));
         // Both streams drained concurrently so a full stderr pipe cannot block git.
@@ -71,12 +71,12 @@ public static partial class GitDiff
         int newLine = 0;
         bool inHunk = false;
 
-        foreach (var line in diff.Split('\n'))
+        foreach (string line in diff.Split('\n'))
         {
             if (line.StartsWith("diff --git "))
             {
                 // Path is fixed up by the "+++" line; this fallback covers binary/mode-only entries.
-                var idx = line.LastIndexOf(" b/", StringComparison.Ordinal);
+                int idx = line.LastIndexOf(" b/", StringComparison.Ordinal);
                 cur = new FileDiff { Path = Unquote(idx >= 0 ? line[(idx + 3)..] : line) };
                 files.Add(cur);
                 inHunk = false;
@@ -88,7 +88,7 @@ public static partial class GitDiff
             {
                 if (line.StartsWith("+++ "))
                 {
-                    var p = Unquote(line[4..]);
+                    string p = Unquote(line[4..]);
                     if (p == "/dev/null") cur.IsDeleted = true;
                     else cur.Path = p.StartsWith("b/") ? p[2..] : p;
                 }
@@ -97,7 +97,7 @@ public static partial class GitDiff
                 else if (line.StartsWith("Binary files ")) cur.IsBinary = true;
             }
 
-            var m = HunkHeader().Match(line);
+            Match m = HunkHeader().Match(line);
             if (m.Success)
             {
                 newLine = int.Parse(m.Groups[1].Value);
@@ -129,7 +129,7 @@ public static partial class GitDiff
 
     public static bool IsExcluded(string path, IEnumerable<string> patterns)
     {
-        var name = System.IO.Path.GetFileName(path);
+        string name = System.IO.Path.GetFileName(path);
         return patterns.Any(p => FileSystemName.MatchesSimpleExpression(p, path, ignoreCase: true)
                                  || FileSystemName.MatchesSimpleExpression(p, name, ignoreCase: true));
     }

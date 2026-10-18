@@ -15,7 +15,7 @@ public class ProviderTests
         var h = new StubHandler((_, _) => StubHandler.Chat("ok"));
         Assert.Equal("ok", await Make(h).CompleteAsync("sys", "usr", default));
 
-        var (req, body) = h.Requests.Single();
+        (HttpRequestMessage? req, string? body) = h.Requests.Single();
         Assert.Equal("Bearer sk-secret", req.Headers.Authorization!.ToString());
         using var doc = JsonDocument.Parse(body!);
         Assert.Equal("m", doc.RootElement.GetProperty("model").GetString());
@@ -38,7 +38,7 @@ public class ProviderTests
     [InlineData(HttpStatusCode.OK, """{"choices":[{"message":{"content":""}}]}""")]
     public async Task Provider_failures_become_execution_errors(HttpStatusCode status, string body)
     {
-        var e = await Assert.ThrowsAsync<SmartWizzException>(() =>
+        SmartWizzException e = await Assert.ThrowsAsync<SmartWizzException>(() =>
             Make(new StubHandler((_, _) => StubHandler.Json(body, status))).CompleteAsync("s", "u", default));
         Assert.DoesNotContain("sk-secret", e.Message);
     }
@@ -58,7 +58,10 @@ public class AzureDevOpsTests
 {
     static readonly AzureDevOpsConfig Cfg = new()
     {
-        CollectionUri = "https://tfs.local/tfs/Coll/", Project = "My Proj", RepositoryId = "repo", PullRequestId = 7,
+        CollectionUri = "https://tfs.local/tfs/Coll/",
+        Project = "My Proj",
+        RepositoryId = "repo",
+        PullRequestId = 7,
     };
 
     static Finding F(string fp, int? end = null) => new("null-deref", Severity.High, "Title", "Msg", "src/a.cs", 10, end, 0.8, fp);
@@ -66,9 +69,9 @@ public class AzureDevOpsTests
     [Fact]
     public void Thread_payload_targets_right_side_lines()
     {
-        var json = JsonSerializer.Serialize(AzureDevOpsPublisher.ThreadPayload(F("abc", 12)));
+        string json = JsonSerializer.Serialize(AzureDevOpsPublisher.ThreadPayload(F("abc", 12)));
         using var doc = JsonDocument.Parse(json);
-        var ctx = doc.RootElement.GetProperty("threadContext");
+        JsonElement ctx = doc.RootElement.GetProperty("threadContext");
         Assert.Equal("/src/a.cs", ctx.GetProperty("filePath").GetString());
         Assert.Equal(10, ctx.GetProperty("rightFileStart").GetProperty("line").GetInt32());
         Assert.Equal(12, ctx.GetProperty("rightFileEnd").GetProperty("line").GetInt32());
@@ -79,7 +82,7 @@ public class AzureDevOpsTests
     [Fact]
     public async Task Posts_only_findings_not_already_on_the_pr()
     {
-        var existing = JsonSerializer.Serialize(new
+        string existing = JsonSerializer.Serialize(new
         {
             value = new object[]
             {
@@ -89,10 +92,10 @@ public class AzureDevOpsTests
         });
         var h = new StubHandler((req, _) => req.Method == HttpMethod.Get ? StubHandler.Json(existing) : StubHandler.Json("{}"));
 
-        var (posted, present) = await new AzureDevOpsPublisher(new HttpClient(h), Cfg, "tok").PublishAsync([F("old"), F("new")], default);
+        (int posted, int present) = await new AzureDevOpsPublisher(new HttpClient(h), Cfg, "tok").PublishAsync([F("old"), F("new")], default);
 
         Assert.Equal((1, 1), (posted, present));
-        var post = h.Requests.Single(r => r.Request.Method == HttpMethod.Post);
+        (HttpRequestMessage Request, string? Body) post = h.Requests.Single(r => r.Request.Method == HttpMethod.Post);
         Assert.Equal("https://tfs.local/tfs/Coll/My%20Proj/_apis/git/repositories/repo/pullRequests/7/threads?api-version=6.0",
             post.Request.RequestUri!.AbsoluteUri);
         Assert.Equal("Basic " + Convert.ToBase64String("tok"u8.ToArray().Prepend((byte)':').ToArray()),
@@ -124,14 +127,16 @@ public class AzureDevOpsTests
     {
         var env = new Dictionary<string, string>
         {
-            ["SYSTEM_COLLECTIONURI"] = "https://tfs/", ["SYSTEM_TEAMPROJECT"] = "P",
-            ["BUILD_REPOSITORY_ID"] = "R", ["SYSTEM_PULLREQUEST_PULLREQUESTID"] = "42",
+            ["SYSTEM_COLLECTIONURI"] = "https://tfs/",
+            ["SYSTEM_TEAMPROJECT"] = "P",
+            ["BUILD_REPOSITORY_ID"] = "R",
+            ["SYSTEM_PULLREQUEST_PULLREQUESTID"] = "42",
         };
-        var path = Path.GetTempFileName();
+        string path = Path.GetTempFileName();
         File.WriteAllText(path, """{ "azureDevOps": { "project": "FromFile" }, "provider": { "model": "m" } }""");
         try
         {
-            var az = Config.Load(path, k => env.GetValueOrDefault(k)).AzureDevOps;
+            AzureDevOpsConfig az = Config.Load(path, k => env.GetValueOrDefault(k)).AzureDevOps;
             Assert.Equal(("https://tfs/", "FromFile", "R", 42), (az.CollectionUri, az.Project, az.RepositoryId, az.PullRequestId!.Value));
         }
         finally { File.Delete(path); }
@@ -143,7 +148,7 @@ public class DotEnvTests
     [Fact]
     public void Loads_values_without_overriding_existing_environment()
     {
-        var path = Path.GetTempFileName();
+        string path = Path.GetTempFileName();
         File.WriteAllText(path, "# comment\nSW_TEST_NEW=\"abc=1\"\nSW_TEST_SET=fromfile\nnot a pair\n");
         Environment.SetEnvironmentVariable("SW_TEST_SET", "fromenv");
         try
@@ -167,7 +172,7 @@ public class GuidelinesTests
     public void System_prompt_appends_standard_only_when_configured()
     {
         Assert.Equal("base", Review.SystemPrompt("base", null));
-        var p = Review.SystemPrompt("base", "  - No magic numbers.\n");
+        string p = Review.SystemPrompt("base", "  - No magic numbers.\n");
         Assert.StartsWith("base", p);
         Assert.Contains("<standard>\n- No magic numbers.\n</standard>", p);
         Assert.Contains("standard-<short-kebab-rule-name>", p);
@@ -176,10 +181,10 @@ public class GuidelinesTests
     [Fact]
     public void Guidelines_path_resolves_relative_to_config_and_must_exist()
     {
-        var dir = Directory.CreateTempSubdirectory().FullName;
+        string dir = Directory.CreateTempSubdirectory().FullName;
         try
         {
-            var cfgPath = Path.Combine(dir, "smartwizz.json");
+            string cfgPath = Path.Combine(dir, "smartwizz.json");
             File.WriteAllText(cfgPath, """{ "review": { "guidelines": "ENGINEERING_STANDARD.md" } }""");
             Assert.Throws<SmartWizzException>(() => Config.Load(cfgPath, _ => null));
 
@@ -245,7 +250,7 @@ public class ReportTests
     public void Json_uses_camel_case_lowercase_severity_and_readable_text()
     {
         using var doc = System.Text.Json.JsonDocument.Parse(Report.ToJson(Sample()));
-        var f = doc.RootElement.GetProperty("findings")[0];
+        JsonElement f = doc.RootElement.GetProperty("findings")[0];
         Assert.Equal(1, doc.RootElement.GetProperty("version").GetInt32());
         Assert.Equal("critical", f.GetProperty("severity").GetString());
         Assert.Equal(6, f.GetProperty("endLine").GetInt32());
@@ -258,7 +263,7 @@ public class ReportTests
     {
         var w = new StringWriter();
         Report.WriteConsole(Sample(), w);
-        var text = w.ToString();
+        string text = w.ToString();
         Assert.Contains("1 finding(s) in 2 reviewed file(s); 1 skipped file(s), 1 rejected finding(s)", text);
         Assert.Contains("[CRITICAL] db.cs:4-6  Raw SQL", text);
         Assert.Contains("    Line two", text);
@@ -275,7 +280,7 @@ public class InternalProviderTests
         var cfg = new ProviderConfig { Endpoint = "https://llm.internal/v1/chat/completions", Model = "m", ApiKeyHeader = "api-key" };
         await new Provider(new HttpClient(h), cfg, "k1").CompleteAsync("s", "u", default);
 
-        var req = h.Requests.Single().Request;
+        HttpRequestMessage req = h.Requests.Single().Request;
         Assert.Null(req.Headers.Authorization);
         Assert.Equal("k1", Assert.Single(req.Headers.GetValues("api-key")));
     }
@@ -293,11 +298,11 @@ public class InternalProviderTests
     public void Endpoint_and_model_env_vars_override_config()
     {
         var env = new Dictionary<string, string> { ["SMARTWIZZ_ENDPOINT"] = "https://llm.internal/v1/chat/completions", ["SMARTWIZZ_MODEL"] = "local-coder" };
-        var path = Path.GetTempFileName();
+        string path = Path.GetTempFileName();
         File.WriteAllText(path, """{ "provider": { "endpoint": "https://public", "model": "public-model" } }""");
         try
         {
-            var p = Config.Load(path, k => env.GetValueOrDefault(k)).Provider;
+            ProviderConfig p = Config.Load(path, k => env.GetValueOrDefault(k)).Provider;
             Assert.Equal(("https://llm.internal/v1/chat/completions", "local-coder"), (p.Endpoint, p.Model));
             env["SMARTWIZZ_ENDPOINT"] = "";
             Assert.Equal("https://public", Config.Load(path, k => env.GetValueOrDefault(k)).Provider.Endpoint);

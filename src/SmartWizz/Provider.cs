@@ -57,7 +57,7 @@ public sealed class Provider(HttpClient http, ProviderConfig cfg, string? apiKey
             throw new SmartWizzException(FailureKind.Provider, $"provider returned {status}: {Truncate(body, 500)}");
         try
         {
-            using JsonDocument doc = JsonDocument.Parse(body);
+            using var doc = JsonDocument.Parse(body);
             string? content = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
             return string.IsNullOrWhiteSpace(content)
                 ? throw new SmartWizzException(FailureKind.Provider, "provider returned empty content")

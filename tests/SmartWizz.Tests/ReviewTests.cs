@@ -19,7 +19,7 @@ public class ReviewTests
     [Fact]
     public void Parses_valid_finding_inside_code_fence()
     {
-        var f = Assert.Single(Parse("Here you go:\n```json\n" + One(Good) + "\n```"));
+        Finding f = Assert.Single(Parse("Here you go:\n```json\n" + One(Good) + "\n```"));
         Assert.Equal(Severity.High, f.Severity);
         Assert.Equal((12, 13), (f.StartLine, f.EndLine!.Value));
         Assert.Equal(16, f.Fingerprint.Length);
@@ -63,7 +63,7 @@ public class ReviewTests
     [InlineData("src\\\\Calc.cs")]
     public void Path_variants_are_normalized(string path)
     {
-        var f = Assert.Single(Parse(One(Good.Replace("\"src/Calc.cs\"", $"\"{path}\""))));
+        Finding f = Assert.Single(Parse(One(Good.Replace("\"src/Calc.cs\"", $"\"{path}\""))));
         Assert.Equal("src/Calc.cs", f.FilePath);
     }
 
@@ -96,7 +96,7 @@ public class ReviewTests
     [Fact]
     public void Fingerprint_ignores_whitespace_and_line_number_but_not_rule()
     {
-        var a = Review.Fingerprint("Null-Deref", "a.cs", "  x.Foo();");
+        string a = Review.Fingerprint("Null-Deref", "a.cs", "  x.Foo();");
         Assert.Equal(a, Review.Fingerprint("null-deref", "a.cs", "x.Foo();\r"));
         Assert.NotEqual(a, Review.Fingerprint("sql-injection", "a.cs", "x.Foo();"));
         Assert.NotEqual(a, Review.Fingerprint("null-deref", "b.cs", "x.Foo();"));
@@ -106,7 +106,7 @@ public class ReviewTests
     public void Dedupe_keeps_most_severe_and_sorts()
     {
         Finding F(Severity s, double c, string fp, int line = 1) => new("r", s, "t", "m", "a.cs", line, null, c, fp);
-        var result = Review.Dedupe([F(Severity.Low, 0.9, "x"), F(Severity.High, 0.6, "x"), F(Severity.Critical, 0.7, "y", 5)]);
+        List<Finding> result = Review.Dedupe([F(Severity.Low, 0.9, "x"), F(Severity.High, 0.6, "x"), F(Severity.Critical, 0.7, "y", 5)]);
         Assert.Equal([("y", Severity.Critical), ("x", Severity.High)], result.Select(f => (f.Fingerprint, f.Severity)));
     }
 
@@ -117,7 +117,7 @@ public class ReviewTests
     [InlineData(Severity.Low, 1)]
     public void Exit_code_follows_threshold(Severity? failOn, int expected)
     {
-        var findings = new[] { new Finding("r", Severity.High, "t", "m", "a.cs", 1, null, 1, "x") };
+        Finding[] findings = new[] { new Finding("r", Severity.High, "t", "m", "a.cs", 1, null, 1, "x") };
         Assert.Equal(expected, Review.ExitCode(findings, failOn));
     }
 
@@ -130,7 +130,7 @@ public class ReviewTests
         var stub = new StubHandler((_, _) => StubHandler.Chat(One(Good)));
         var provider = new Provider(new HttpClient(stub), new ProviderConfig { Endpoint = "http://x/v1/chat/completions", Model = "m" }, null);
 
-        var result = await Review.RunAsync(GitDiff.Parse(GitDiffTests.Sample), new ReviewConfig(), provider, "sys", default);
+        ReviewResult result = await Review.RunAsync(GitDiff.Parse(GitDiffTests.Sample), new ReviewConfig(), provider, "sys", default);
 
         Assert.Single(stub.Requests);
         Assert.Equal(1, result.ReviewedFiles);
@@ -166,7 +166,7 @@ public class SanitizeTests
             {"findings":[{"ruleId":"r\u0007","severity":"low","title":"a\u001b[31mred\r\nb","message":"x\r\ny\u0000",
              "filePath":"src/Calc.cs","startLine":12,"confidence":0.9}]}
             """;
-        var f = Assert.Single(Review.Parse(reply, files, 0.5, []));
+        Finding f = Assert.Single(Review.Parse(reply, files, 0.5, []));
         Assert.Equal(("r", "a[31mredb", "x\ny"), (f.RuleId, f.Title, f.Message));
     }
 }
