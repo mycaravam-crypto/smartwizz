@@ -1,0 +1,59 @@
+# SmartWizz PR review for Azure DevOps Server (2020+, multi-repo checkout).
+# Add to the reviewed repository and register as a branch-policy build validation.
+#
+# Setup:
+#   - Secret pipeline variable SMARTWIZZ_API_KEY (provider key).
+#   - Build service identity: "Contribute to pull requests" on the reviewed repository.
+#   - smartwizz.json lives in the SmartWizz repo, NOT the reviewed repo: a PR must not be able
+#     to change provider.endpoint and receive the API key.
+
+trigger: none
+
+resources:
+  repositories:
+    - repository: smartwizz
+      type: git
+      name: Tools/smartwizz # <project>/<repo> hosting SmartWizz
+      ref: refs/heads/main
+
+pool:
+  name: Default # self-hosted agent pool
+
+variables:
+  failOn: high # low | medium | high | critical; drop --fail-on below for report-only
+
+steps:
+  - checkout: self
+    path: pr
+    fetchDepth: 0 # merge-base needs history
+
+  - checkout: smartwizz
+    path: smartwizz
+
+  - task: UseDotNet@2
+    inputs:
+      packageType: sdk
+      version: 10.0.x
+
+  - bash: |
+      set -euo pipefail
+      target="${SYSTEM_PULLREQUEST_TARGETBRANCH#refs/heads/}"
+      # HEAD is the PR merge commit; HEAD^2 is the PR source tip, whose line numbers
+      # match the right-hand side that PR threads anchor to.
+      dotnet run --project "$(Agent.BuildDirectory)/smartwizz/src/SmartWizz" -c Release -- \
+        --repo "$(Agent.BuildDirectory)/pr" \
+        --base "origin/$target" \
+        --head HEAD^2 \
+        --config "$(Agent.BuildDirectory)/smartwizz/smartwizz.json" \
+        --json "$(Build.ArtifactStagingDirectory)/smartwizz-report.json" \
+        --fail-on "$(failOn)" \
+        --publish
+    displayName: SmartWizz review
+    condition: eq(variables['Build.Reason'], 'PullRequest')
+    env:
+      SMARTWIZZ_API_KEY: $(SMARTWIZZ_API_KEY) # secrets reach scripts only when mapped
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+
+  - publish: $(Build.ArtifactStagingDirectory)/smartwizz-report.json
+    artifact: smartwizz
+    condition: succeededOrFailed()

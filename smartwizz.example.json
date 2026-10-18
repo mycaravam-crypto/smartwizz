@@ -1,0 +1,24 @@
+{
+  // Copy to smartwizz.json. No secrets here: use SMARTWIZZ_API_KEY / SMARTWIZZ_AZDO_TOKEN env vars.
+  "provider": {
+    "endpoint": "https://api.openai.com/v1/chat/completions", // or e.g. http://localhost:11434/v1/chat/completions (Ollama)
+    "model": "your-model-name",
+    "temperature": 0, // set to null for models that reject a temperature parameter
+    "timeoutSeconds": 180
+  },
+  "review": {
+    "contextLines": 10,
+    "maxCharsPerRequest": 60000,
+    "minConfidence": 0.5
+    // "exclude": ["*.lock", "*.min.js", "*/Migrations/*"]  -- replaces the built-in list
+  },
+  "azureDevOps": {
+    // All optional in a PR pipeline: defaults come from System.CollectionUri, System.TeamProject,
+    // Build.Repository.ID and System.PullRequest.PullRequestId.
+    // "collectionUri": "https://tfs.example.com/tfs/DefaultCollection/",
+    // "project": "MyProject",
+    // "repositoryId": "MyRepo",
+    // "pullRequestId": 123,
+    "apiVersion": "6.0" // 5.0 for Azure DevOps Server 2019
+  }
+}
