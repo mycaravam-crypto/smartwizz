@@ -46,6 +46,10 @@ def score(key, report, expected, adjudication=None):
         "models": report.get("models", []),
         "rulesetVersion": report.get("rulesetVersion"),
         "rulesetSha256": report.get("rulesetSha256"),
+        "systemPromptCharacters": report.get("systemPromptCharacters"),
+        "userPromptCharacters": report.get("userPromptCharacters"),
+        "promptTokens": report.get("promptTokens"),
+        "completionTokens": report.get("completionTokens"),
         "note": "Automatic matches are only location candidates; review semantics manually."
     }
     if adjudication is not None:
@@ -100,7 +104,10 @@ def main():
         last = list(scores.values())[-1]
         scores["deltaLastVsFirst"] = {
             metric: round(last[metric] - first[metric], 4)
-            for metric in ("precisionCandidate", "recallCandidate", "f1Candidate")
+            for metric in ("precisionCandidate", "recallCandidate", "f1Candidate",
+                           "systemPromptCharacters", "promptTokens", "completionTokens")
+            if isinstance(first.get(metric), (int, float))
+            and isinstance(last.get(metric), (int, float))
         }
     print(json.dumps(scores, indent=2))
 
