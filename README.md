@@ -181,6 +181,27 @@ Security notes:
 - Published comments are model-generated text and are labelled as AI output. Treat them like any other untrusted review comment.
 - Tokens are sent only in request headers and never logged.
 
+## Engineering standard at a glance
+
+[ENGINEERING_STANDARD.md](ENGINEERING_STANDARD.md) is mandatory for production code, tests, configuration, build scripts, CI and AI-assisted changes. This table is a **summary, not a replacement** for the full normative text. Rules that cannot be checked mechanically still require a review.
+
+| Section | Required rule (summary) | Verification focus |
+|---|---|---|
+| 1. Type safety and deterministic behavior | Explicit types at public boundaries; immutable state by default; strict nullability; typed domain states; validate untrusted values. | Compiler/nullability checks, analyzers, edge-case tests, reviewer |
+| 2. Code hygiene and production readiness | Precise names, useful comments only, no obsolete/TODO-only code, debug output, unused code, secret logging or unjustified dependencies. | Formatter, static analysis, secret scanning, reviewer |
+| 3. Functions, modularity and DRY | Single responsibility, isolate side effects, avoid duplicated business rules and needless abstractions; name constants and validate configuration. | Architecture/code review, focused unit tests |
+| 4. Error handling and state safety | Validate at boundaries; never silently swallow errors; make state transitions atomic where needed; dispose resources; propagate cancellation and enforce timeouts. | Failure-path, concurrency and cancellation tests; reviewer |
+| 5. Architecture and dependency boundaries | Stable domain logic must not depend on transport or providers; expose small explicit contracts; separate concerns without overengineering. | Dependency/architecture review and integration tests |
+| 6. API, serialization and external data | Explicit schemas, validated deserialization and AI output, identifiers, paths and ranges; handle malformed/unsupported data without silent coercion. | Contract, malformed-input and negative tests |
+| 7. Security by default | Least privilege; never execute untrusted PR content or obey embedded instructions; prevent traversal/injection, unsafe deserialization and secret disclosure; fail closed. | Security review, adversarial tests, CI permission audit |
+| 8. Testing and verification | Test business rules, boundaries, edge cases and failures deterministically; use integration tests for contracts; run relevant checks and disclose failures. | Automated test suite, coverage of changed behavior, CI |
+| 9. Language-specific enforcement | .NET: nullable, analyzers as errors, responsible `async`/`await`, cancellation and disposal. TypeScript: strict types, `unknown` narrowing and exhaustive unions. | `dotnet build`, `dotnet format`, TypeScript checks where applicable |
+| 10. Automated enforcement | Run standard formatters, compilers, linters and analyzers in CI; block violations; justify narrow suppressions, avoid a custom rule engine. | Required CI checks and ruleset review |
+| 11. AI-assisted change workflow | Inspect architecture first, implement the smallest focused increment, avoid unrelated refactors, verify and report limitations before completion. | PR diff, engineering review and verification evidence |
+| 12. Definition of Done | Correct behavior, types/nullability, controlled errors/side effects, security, meaningful tests, green checks and no speculative complexity. | PR completion checklist and review |
+
+**Benchmarking the LLM reviewer:** See [Reviewer benchmark methodology](benchmarks/README.md). The seeded-defect PR must stay unmerged. Its independent answer key is maintained separately so the model cannot simply copy expected findings from the PR diff. A passing compilation check alone does **not** prove that the semantic rules are applied.
+
 ## Development
 
 Same checks as CI (`.github/workflows/ci.yml`):

@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "fixture": "benchmarks/fixtures/RuleViolations.cs",
+  "defects": [
+    {
+      "id": "B01",
+      "section": "1.3",
+      "title": "Null dereference",
+      "anchor": "return input.Trim().Length;",
+      "severity": "high"
+    },
+    {
+      "id": "B02",
+      "section": "4.1",
+      "title": "Swallowed exception",
+      "anchor": "catch (Exception) { return 0; }",
+      "severity": "medium"
+    },
+    {
+      "id": "B03",
+      "section": "7",
+      "title": "Hard-coded password",
+      "anchor": "const string password = \"benchmark-not-a-real-secret\";",
+      "severity": "high"
+    },
+    {
+      "id": "B04",
+      "section": "7",
+      "title": "Path traversal",
+      "anchor": "return File.ReadAllText(Path.Combine(root, fileName));",
+      "severity": "high"
+    },
+    {
+      "id": "B05",
+      "section": "4.3",
+      "title": "Undisposed file handle",
+      "anchor": "File.OpenRead(path);",
+      "severity": "medium"
+    },
+    {
+      "id": "B06",
+      "section": "9",
+      "title": "Blocking async result",
+      "anchor": "return client.GetStringAsync(url).Result;",
+      "severity": "high"
+    },
+    {
+      "id": "B07",
+      "section": "4.3",
+      "title": "Missing cancellation propagation",
+      "anchor": "return await client.GetAsync(url);",
+      "severity": "medium"
+    },
+    {
+      "id": "B08",
+      "section": "6",
+      "title": "Unchecked JSON numeric property",
+      "anchor": "return document.RootElement.GetProperty(\"count\").GetInt32();",
+      "severity": "medium"
+    },
+    {
+      "id": "B09",
+      "section": "1.2",
+      "title": "Mutable collection exposure",
+      "anchor": "public List<string> Entries => _entries;",
+      "severity": "medium"
+    },
+    {
+      "id": "B10",
+      "section": "3.4",
+      "title": "Magic number threshold",
+      "anchor": "return retries > 137;",
+      "severity": "low"
+    },
+    {
+      "id": "B11",
+      "section": "4.1",
+      "title": "Silent invalid input coercion",
+      "anchor": "return int.TryParse(raw, out int value) ? value : 0;",
+      "severity": "medium"
+    },
+    {
+      "id": "B12",
+      "section": "7",
+      "title": "Unsafe command execution",
+      "anchor": "Process.Start(\"sh\", \"-c \" + command);",
+      "severity": "critical"
+    },
+    {
+      "id": "B13",
+      "section": "8",
+      "title": "Nontrivial change without tests",
+      "anchor": "return amount * rate - 1;",
+      "severity": "medium"
+    },
+    {
+      "id": "B14",
+      "section": "1.1",
+      "title": "Untyped domain boundary",
+      "anchor": "public object Resolve(object payload) => payload;",
+      "severity": "medium"
+    },
+    {
+      "id": "B15",
+      "section": "2.3",
+      "title": "Sensitive input logged",
+      "anchor": "Console.WriteLine(\"Token: \" + token);",
+      "severity": "high"
+    },
+    {
+      "id": "B16",
+      "section": "4.3",
+      "title": "Unbounded retry",
+      "anchor": "while (true)",
+      "severity": "high"
+    }
+  ]
+}
