@@ -75,7 +75,7 @@ public static partial class Review
             string prompt = selected is null ? systemPrompt : RuleCatalog.BuildPrompt(systemPrompt, selected);
             Completion reply = await provider.CompleteAsync(prompt, BuildUserMessage(b, files.Select(f => f.Path)), ct);
             if (!result.Models.Contains(reply.Model)) result.Models.Add(reply.Model);
-            HashSet<string>? allowedRuleIds = selected?.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
+            var allowedRuleIds = selected?.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
             all.AddRange(Parse(reply.Content, b.ToDictionary(f => f.Path), cfg.MinConfidence, result.Rejected, allowedRuleIds));
             result.ReviewedFiles += b.Count;
         }
