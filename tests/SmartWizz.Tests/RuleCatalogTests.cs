@@ -82,7 +82,7 @@ public sealed class RuleCatalogTests
     [Fact]
     public void Rejects_unknown_and_inapplicable_standard_ids_but_keeps_generic_bug_findings()
     {
-        List<FileDiff> files = GitDiff.Parse("""
+        Dictionary<string, FileDiff> files = GitDiff.Parse("""
             diff --git a/src/Calc.cs b/src/Calc.cs
             --- a/src/Calc.cs
             +++ b/src/Calc.cs
@@ -109,7 +109,7 @@ public sealed class RuleCatalogTests
     [Fact]
     public async Task Review_passes_batch_selected_rules_and_records_catalog_provenance()
     {
-        var files = GitDiff.Parse("""
+        List<FileDiff> files = GitDiff.Parse("""
             diff --git a/src/Calc.cs b/src/Calc.cs
             --- a/src/Calc.cs
             +++ b/src/Calc.cs
