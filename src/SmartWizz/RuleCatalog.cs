@@ -106,7 +106,7 @@ public sealed class RuleCatalog
         if (selected.Count == 0)
             return basePrompt + "\n\nNo standard rules are applicable to the current review batch. Do not emit standard-* rule IDs.";
 
-        var sb = new StringBuilder(basePrompt)
+        StringBuilder sb = new StringBuilder(basePrompt)
             .AppendLine()
             .AppendLine()
             .AppendLine("## Engineering standard (trusted, selected rules)")
