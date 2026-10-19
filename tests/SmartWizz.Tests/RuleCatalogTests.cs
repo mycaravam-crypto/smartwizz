@@ -149,6 +149,9 @@ public sealed class RuleCatalogTests
         Assert.Equal("standard-cs-null", result.Findings[0].RuleId);
         Assert.Equal("1.2.3", result.RulesetVersion);
         Assert.Equal(catalog.Sha256, result.RulesetSha256);
+        Assert.True(result.SystemPromptCharacters > 0);
+        Assert.True(result.UserPromptCharacters > 0);
+        Assert.Null(result.PromptTokens); // stub provider does not report usage
         Assert.Contains("standard-cs-null", stub.Requests[0].Body);
         Assert.DoesNotContain("standard-ts-alias", stub.Requests[0].Body);
         string json = Report.ToJson(result);
