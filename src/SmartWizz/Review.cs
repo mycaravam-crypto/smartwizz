@@ -31,6 +31,10 @@ public sealed class ReviewResult
     public List<string> Rejected { get; } = [];
     public string? RulesetVersion { get; set; }
     public string? RulesetSha256 { get; set; }
+    public long SystemPromptCharacters { get; set; }
+    public long UserPromptCharacters { get; set; }
+    public long? PromptTokens { get; set; }
+    public long? CompletionTokens { get; set; }
 }
 
 public static partial class Review
@@ -68,12 +72,24 @@ public static partial class Review
         if (batch.Count > 0) batches.Add(batch);
 
         var all = new List<Finding>();
+        long promptTokens = 0;
+        long completionTokens = 0;
+        bool completeUsage = batches.Count > 0;
         // Sequential on purpose: keeps request rate and provider quota use predictable.
         foreach (List<FileDiff> b in batches)
         {
             List<EngineeringRule>? selected = catalog?.Select(b.Select(f => f.Path));
             string prompt = selected is null ? systemPrompt : RuleCatalog.BuildPrompt(systemPrompt, selected);
-            Completion reply = await provider.CompleteAsync(prompt, BuildUserMessage(b, files.Select(f => f.Path)), ct);
+            string userMessage = BuildUserMessage(b, files.Select(f => f.Path));
+            result.SystemPromptCharacters += prompt.Length;
+            result.UserPromptCharacters += userMessage.Length;
+            Completion reply = await provider.CompleteAsync(prompt, userMessage, ct);
+            if (reply.PromptTokens is { } inputTokens && reply.CompletionTokens is { } outputTokens)
+            {
+                promptTokens += inputTokens;
+                completionTokens += outputTokens;
+            }
+            else completeUsage = false;
             if (!result.Models.Contains(reply.Model)) result.Models.Add(reply.Model);
             var allowedRuleIds = selected?.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
             all.AddRange(Parse(reply.Content, b.ToDictionary(f => f.Path), cfg.MinConfidence, result.Rejected, allowedRuleIds));
@@ -81,6 +97,11 @@ public static partial class Review
         }
 
         result.Findings = Dedupe(all);
+        if (completeUsage)
+        {
+            result.PromptTokens = promptTokens;
+            result.CompletionTokens = completionTokens;
+        }
         return result;
     }
 
