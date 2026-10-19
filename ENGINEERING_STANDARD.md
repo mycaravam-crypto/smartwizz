@@ -246,6 +246,9 @@ Apply equivalent rules using each language's native features rather than forcing
 - Avoid non-null assertions and unchecked type casts.
 - Validate runtime input; TypeScript types alone do not validate external data.
 - Use exhaustive checks for discriminated unions.
+- Use the `@/` path alias for imports of project-internal modules across directories (for example, `@/domain/User`). Do not use parent-directory traversal imports such as `../domain/User` or `../../domain/User` for these dependencies. Same-directory `./` imports and external package imports are allowed.
+- Configure the `@/*` alias in TypeScript (`compilerOptions.paths`) and consistently in the bundler/runtime, test runner, and other tools that resolve modules. A compiler-only alias is insufficient when runtime resolution differs.
+- Enforce the project-internal alias convention through existing lint tooling and CI; reject newly introduced parent-directory traversal imports. Do not add a bespoke import-rule engine.
 
 ## 10. Automated Enforcement
 
