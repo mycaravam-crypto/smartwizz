@@ -19,6 +19,8 @@ public static class Report
         version = 1,
         r.ReviewedFiles,
         r.Models,
+        r.RulesetVersion,
+        r.RulesetSha256,
         r.Findings,
         r.SkippedFiles,
         r.Rejected,
