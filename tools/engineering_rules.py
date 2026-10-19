@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "rules" / "engineering-rules.json"
 TARGET = ROOT / "ENGINEERING_STANDARD.md"
-HEADER = "<!-- Generated from rules/engineering-rules.json; do not edit by hand. -->\n"
+HEADER = ""
 
 
 def render(catalog):
@@ -24,7 +24,7 @@ def render(catalog):
         if not rule_id.startswith("standard-") or rule_id in seen:
             raise ValueError(f"Invalid or duplicate rule ID: {rule_id}")
         seen.add(rule_id)
-        output.append(f'- {rule["requirement"]} <!-- {rule_id} -->')
+        output.append(f'- {rule["requirement"]}')
     if not seen:
         raise ValueError("Empty rule catalog")
     return HEADER + "\n".join(output)
