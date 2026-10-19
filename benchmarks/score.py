@@ -23,7 +23,6 @@ def score(key, report, expected, adjudication=None):
         raise ValueError("Report 'findings' must be an array")
     source = key["fixture"]
     matches = set()
-    matched_fps = set()
     for finding in findings:
         path = finding.get("filePath", "").replace("\\", "/").removeprefix("./")
         line = finding.get("startLine")
@@ -32,7 +31,6 @@ def score(key, report, expected, adjudication=None):
                           and defect["id"] not in matches), None)
         if candidate is not None:
             matches.add(candidate["id"])
-            matched_fps.add(finding["fingerprint"])
 
     n, total = len(findings), len(defects)
     tp = len(matches)
