@@ -67,6 +67,20 @@ public sealed class RuleCatalogTests
     }
 
     [Fact]
+    public void Repository_catalog_loads_and_rejects_unrelated_markdown_rules()
+    {
+        string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../.."));
+        string rulesPath = Path.Combine(root, "rules", "engineering-rules.json");
+        RuleCatalog catalog = RuleCatalog.Load(rulesPath);
+
+        Assert.Equal(172, catalog.Rules.Count);
+        Assert.Empty(catalog.Select(["README.md"]));
+        Assert.Contains(catalog.Select(["src/Code.cs"]), rule => rule.Id == "standard-4-1-05");
+        Assert.Contains(catalog.Select(["web/src/App.tsx"]), rule => rule.Id == "standard-9-ts-08");
+        Assert.DoesNotContain(catalog.Select(["src/Code.cs"]), rule => rule.Id == "standard-9-ts-08");
+    }
+
+    [Fact]
     public void Rejects_duplicate_ids()
     {
         string duplicate = Sample.Replace("\"standard-ts-alias\"", "\"standard-cs-null\"");
