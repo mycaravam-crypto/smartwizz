@@ -1,0 +1,2172 @@
+{
+  "schemaVersion": 1,
+  "version": "1.0.0",
+  "lines": [
+    {
+      "text": "# Production Engineering Standard"
+    },
+    {
+      "text": "## Strict Typing, Clean Code & Maintainable Architecture"
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "**Status:** Mandatory  "
+    },
+    {
+      "text": "**Scope:** All production code, tests, configuration, build scripts, and CI pipelines  "
+    },
+    {
+      "text": "**Primary objective:** Maximize correctness, readability, security, and maintainability while minimizing unnecessary complexity."
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "These rules are engineering constraints, not optional recommendations. Apply them consistently to new code, modifications, refactorings, and generated code."
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "When rules conflict, prioritize correctness, security, simplicity, and explicit behavior. Follow YAGNI: implement only what current requirements justify."
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "## 1. Type Safety & Deterministic Behavior"
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### 1.1 Explicit Types"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-1-1-01",
+        "section": "1.1",
+        "requirement": "Every public API, function parameter, return value, property, and data contract must have an explicit, unambiguous type.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-1-02",
+        "section": "1.1",
+        "requirement": "Prohibit `dynamic`, `object`-based programming, untyped dictionaries, implicit `any`, and equivalent escape hatches unless a concrete interoperability requirement demands them.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-1-03",
+        "section": "1.1",
+        "requirement": "Infer local variable types only when the type is immediately obvious and inference improves readability. Otherwise, declare the type explicitly.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-1-04",
+        "section": "1.1",
+        "requirement": "Use dedicated types for domain concepts rather than primitive values when this materially improves correctness.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-1-05",
+        "section": "1.1",
+        "requirement": "Avoid unnecessary type conversions, unsafe casts, reflection, and runtime type inspection.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-1-06",
+        "section": "1.1",
+        "requirement": "Treat external data as untrusted until validated and converted into a typed internal representation.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "high"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### 1.2 Immutability by Default"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-1-2-01",
+        "section": "1.2",
+        "requirement": "Prefer immutable variables, fields, properties, collections, and data structures.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-2-02",
+        "section": "1.2",
+        "requirement": "Use `const` where supported and appropriate; otherwise use the language's immutable or read-only equivalents.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-2-03",
+        "section": "1.2",
+        "requirement": "In C#, prefer `readonly` fields, `init`-only properties, immutable value objects, and immutable collection types where appropriate.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-2-04",
+        "section": "1.2",
+        "requirement": "In TypeScript, prefer `const`, `readonly`, readonly properties, and readonly collection interfaces.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-2-05",
+        "section": "1.2",
+        "requirement": "Use mutable state only when required by the domain or algorithm. Keep its scope and lifetime as small as possible.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-2-06",
+        "section": "1.2",
+        "requirement": "Never expose mutable internal collections directly.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-2-07",
+        "section": "1.2",
+        "requirement": "Avoid mutation of input parameters and shared objects.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-2-08",
+        "section": "1.2",
+        "requirement": "Prefer transformations that produce explicit results over hidden modifications.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### 1.3 Nullability & Optional Values"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-1-3-01",
+        "section": "1.3",
+        "requirement": "Enable strict nullability checks wherever the language supports them.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-3-02",
+        "section": "1.3",
+        "requirement": "In C#, enable nullable reference types.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-3-03",
+        "section": "1.3",
+        "requirement": "In TypeScript, enable `strict` and `strictNullChecks`.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-3-04",
+        "section": "1.3",
+        "requirement": "Model optional values explicitly. Distinguish between missing, `null`, invalid, and valid values where these states have different meanings.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-3-05",
+        "section": "1.3",
+        "requirement": "Do not use null suppression, non-null assertions, or null-forgiving operators to bypass compiler checks without a verified invariant.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-3-06",
+        "section": "1.3",
+        "requirement": "Avoid returning `null` where an explicit result type, empty collection, or structured error is more appropriate.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-3-07",
+        "section": "1.3",
+        "requirement": "Validate nullable values at system boundaries and narrow their types before use.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### 1.4 Domain Modeling"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-1-4-01",
+        "section": "1.4",
+        "requirement": "Represent domain states explicitly instead of relying on loosely related Boolean flags.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-4-02",
+        "section": "1.4",
+        "requirement": "Prefer enums, discriminated unions, dedicated value objects, and validated domain types where they reduce invalid states.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-4-03",
+        "section": "1.4",
+        "requirement": "Avoid primitive obsession when identifiers, paths, severities, statuses, or other domain concepts require distinct semantics.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-4-04",
+        "section": "1.4",
+        "requirement": "Make invalid states difficult or impossible to represent.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-1-4-05",
+        "section": "1.4",
+        "requirement": "Use exhaustive handling for enums and discriminated unions where supported.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "## 2. Code Hygiene & Production Readiness"
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### 2.1 Self-Documenting Code"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-2-1-01",
+        "section": "2.1",
+        "requirement": "Use meaningful, precise, and consistent names for types, variables, functions, properties, and files.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-1-02",
+        "section": "2.1",
+        "requirement": "Functions should communicate their intent through their names, parameters, return types, and observable behavior.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-1-03",
+        "section": "2.1",
+        "requirement": "Avoid ambiguous abbreviations, generic names such as `data`, `manager`, or `helper`, and misleading names.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-1-04",
+        "section": "2.1",
+        "requirement": "Keep functions small enough to understand without mentally simulating unrelated operations.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-1-05",
+        "section": "2.1",
+        "requirement": "Replace complicated Boolean expressions with named predicates when doing so improves readability.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### 2.2 Comments & Documentation"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-2-2-01",
+        "section": "2.2",
+        "requirement": "Do not add comments that merely restate what the code already expresses.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-2-02",
+        "section": "2.2",
+        "requirement": "Prohibit commented-out code, obsolete implementation notes, temporary annotations, and unexplained TODOs in production code.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-2-03",
+        "section": "2.2",
+        "requirement": "Comments are permitted only when they explain information that cannot be expressed adequately through code, such as non-obvious invariants, security constraints, external limitations, or algorithmic rationale.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-2-04",
+        "section": "2.2",
+        "requirement": "Public APIs must have appropriate external documentation or API documentation when required by the project.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-2-05",
+        "section": "2.2",
+        "requirement": "Use XML documentation in C# when required by the public API contract or documentation tooling. Do not prohibit it categorically.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-2-06",
+        "section": "2.2",
+        "requirement": "Keep architecture decisions, operational instructions, and design rationale in the appropriate documentation files.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-2-07",
+        "section": "2.2",
+        "requirement": "Every TODO must have an explicit purpose and an actionable tracking reference if it is retained.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### 2.3 Debugging & Logging"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-2-3-01",
+        "section": "2.3",
+        "requirement": "Prohibit temporary debugging statements, interactive breakpoints, and ad hoc tracing in production code.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-3-02",
+        "section": "2.3",
+        "requirement": "Use the project's structured logging abstraction for operational events.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-3-03",
+        "section": "2.3",
+        "requirement": "Never log credentials, access tokens, secrets, or unnecessarily sensitive data.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "high"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-3-04",
+        "section": "2.3",
+        "requirement": "Log meaningful events at appropriate severity levels without flooding logs.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-3-05",
+        "section": "2.3",
+        "requirement": "Do not use exceptions as a substitute for ordinary control flow.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-3-06",
+        "section": "2.3",
+        "requirement": "Automated checks must detect prohibited debugging APIs and accidental diagnostic output where practical.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### 2.4 Dead Code & Dependencies"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-2-4-01",
+        "section": "2.4",
+        "requirement": "Remove unused imports, variables, parameters, methods, classes, and unreachable branches.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-4-02",
+        "section": "2.4",
+        "requirement": "Never retain commented-out legacy implementations.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-4-03",
+        "section": "2.4",
+        "requirement": "Remove dependencies that are no longer needed.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-4-04",
+        "section": "2.4",
+        "requirement": "Do not add a package when the platform or existing dependencies already provide a suitable solution.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-4-05",
+        "section": "2.4",
+        "requirement": "Avoid speculative abstractions, unused extension points, and compatibility layers without an actual requirement.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-2-4-06",
+        "section": "2.4",
+        "requirement": "Treat warnings as defects. New warnings are prohibited unless explicitly justified and narrowly suppressed.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "## 3. Functions, Modularity & DRY"
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### 3.1 Single Responsibility"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-3-1-01",
+        "section": "3.1",
+        "requirement": "Every function, class, and module must have one coherent responsibility.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-1-02",
+        "section": "3.1",
+        "requirement": "Keep domain logic separate from I/O, infrastructure, presentation, and external service integrations.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-1-03",
+        "section": "3.1",
+        "requirement": "Avoid god classes, monolithic files, generic utility dumping grounds, and excessive cross-module dependencies.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-1-04",
+        "section": "3.1",
+        "requirement": "Extract a component when doing so creates a meaningful domain boundary, simplifies testing, reduces genuine duplication, or isolates a changing concern.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-1-05",
+        "section": "3.1",
+        "requirement": "Do not split code into additional files or abstractions solely to satisfy an arbitrary line-count limit.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### 3.2 DRY Without Overengineering"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-3-2-01",
+        "section": "3.2",
+        "requirement": "Avoid duplicating business rules, security checks, and complex algorithms.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-2-02",
+        "section": "3.2",
+        "requirement": "Extract shared logic when duplication is meaningful and the behavior is genuinely the same.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-2-03",
+        "section": "3.2",
+        "requirement": "Do not abstract two superficially similar operations if their semantics or expected evolution differ.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-2-04",
+        "section": "3.2",
+        "requirement": "Prefer a small amount of clear duplication over a generic abstraction that introduces more complexity than it removes.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-2-05",
+        "section": "3.2",
+        "requirement": "Follow YAGNI: do not create reusable frameworks, generic factories, interfaces, or configuration mechanisms without a concrete need.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-2-06",
+        "section": "3.2",
+        "requirement": "Avoid both copy-paste business logic and premature abstraction.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### 3.3 Pure Functions & Side Effects"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-3-3-01",
+        "section": "3.3",
+        "requirement": "Prefer pure functions for calculations, transformations, validation, and domain decisions.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-3-02",
+        "section": "3.3",
+        "requirement": "Pure functions must return the same result for the same inputs and must not modify external state.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-3-03",
+        "section": "3.3",
+        "requirement": "Isolate unavoidable side effects, including file access, network requests, logging, clocks, random-number generation, and process execution.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-3-04",
+        "section": "3.3",
+        "requirement": "Make side effects visible through method names, dependencies, or return types.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-3-05",
+        "section": "3.3",
+        "requirement": "Inject external dependencies when doing so improves testability or makes behavior explicit.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-3-06",
+        "section": "3.3",
+        "requirement": "Do not introduce dependency injection frameworks or abstractions for trivial, stable dependencies without a demonstrated benefit.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "high"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### 3.4 Constants & Configuration"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-3-4-01",
+        "section": "3.4",
+        "requirement": "Replace unexplained magic numbers and strings with meaningful named constants.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-4-02",
+        "section": "3.4",
+        "requirement": "Keep configuration values in configuration files or typed configuration objects when they vary by environment or deployment.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-4-03",
+        "section": "3.4",
+        "requirement": "Keep fixed implementation details close to the code that owns them.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-4-04",
+        "section": "3.4",
+        "requirement": "Do not centralize every literal in a global constants module.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-4-05",
+        "section": "3.4",
+        "requirement": "Use enums or dedicated types for finite, meaningful sets of domain values.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-4-06",
+        "section": "3.4",
+        "requirement": "Never store secrets in source code, committed configuration files, or test fixtures.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "high"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-3-4-07",
+        "section": "3.4",
+        "requirement": "Validate configuration at startup and fail with a clear, actionable error when required settings are invalid.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "## 4. Error Handling & State Safety"
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### 4.1 Fail Fast"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-4-1-01",
+        "section": "4.1",
+        "requirement": "Validate external inputs at system boundaries, including CLI arguments, configuration, HTTP responses, file content, deserialized JSON, and AI-generated output.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-4-1-02",
+        "section": "4.1",
+        "requirement": "Reject invalid states explicitly rather than allowing them to propagate.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-4-1-03",
+        "section": "4.1",
+        "requirement": "Return structured errors for expected operational failures when callers need to handle them.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-4-1-04",
+        "section": "4.1",
+        "requirement": "Use exceptions for exceptional failures and unexpected conditions.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-4-1-05",
+        "section": "4.1",
+        "requirement": "Never swallow exceptions silently or catch an exception without handling it meaningfully.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium",
+        "badExample": "catch (Exception) { }",
+        "goodExample": "catch (IOException ex) { throw new ReviewException(\"Read failed\", ex); }"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-4-1-06",
+        "section": "4.1",
+        "requirement": "Do not expose internal stack traces, secrets, or sensitive implementation details to external users.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "high"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-4-1-07",
+        "section": "4.1",
+        "requirement": "Preserve the original exception when adding context to an error.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-4-1-08",
+        "section": "4.1",
+        "requirement": "Fail safely when a dependency is unavailable or an external response is malformed.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### 4.2 Explicit State Transitions"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-4-2-01",
+        "section": "4.2",
+        "requirement": "Keep state changes localized and easy to audit.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-4-2-02",
+        "section": "4.2",
+        "requirement": "Prefer immutable state transitions when practical.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-4-2-03",
+        "section": "4.2",
+        "requirement": "Make state ownership and lifecycle explicit.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-4-2-04",
+        "section": "4.2",
+        "requirement": "Avoid shared mutable global state and hidden mutation through callbacks or service dependencies.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-4-2-05",
+        "section": "4.2",
+        "requirement": "Validate state transitions before applying them.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-4-2-06",
+        "section": "4.2",
+        "requirement": "Use transactions or atomic operations where partial updates would violate correctness.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-4-2-07",
+        "section": "4.2",
+        "requirement": "Do not introduce state-management frameworks unless the application genuinely needs them.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### 4.3 Resource Management"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-4-3-01",
+        "section": "4.3",
+        "requirement": "Dispose of files, streams, network responses, processes, database connections, and other disposable resources deterministically.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-4-3-02",
+        "section": "4.3",
+        "requirement": "In C#, use `using` and `await using` where appropriate.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-4-3-03",
+        "section": "4.3",
+        "requirement": "Propagate cancellation tokens through asynchronous operations that support cancellation.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "high"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-4-3-04",
+        "section": "4.3",
+        "requirement": "Apply explicit timeouts to external operations.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-4-3-05",
+        "section": "4.3",
+        "requirement": "Avoid unbounded retries, unbounded concurrency, and unbounded memory consumption.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-4-3-06",
+        "section": "4.3",
+        "requirement": "Ensure failure paths release resources correctly.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "## 5. Architecture & Dependency Boundaries"
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### 5.1 Dependency Direction"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-5-1-01",
+        "section": "5.1",
+        "requirement": "Domain logic must not depend directly on CLI presentation, CI platform APIs, or AI provider implementations.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-5-1-02",
+        "section": "5.1",
+        "requirement": "Keep external integrations behind small interfaces or explicit adapters when multiple implementations, testing, or boundary isolation justify them.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-5-1-03",
+        "section": "5.1",
+        "requirement": "Dependencies should point toward stable domain logic, not toward volatile infrastructure details.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-5-1-04",
+        "section": "5.1",
+        "requirement": "Avoid circular dependencies.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-5-1-05",
+        "section": "5.1",
+        "requirement": "Avoid service locators and hidden dependency resolution.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-5-1-06",
+        "section": "5.1",
+        "requirement": "Do not create interfaces for every class by default.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### 5.2 Small, Explicit Contracts"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-5-2-01",
+        "section": "5.2",
+        "requirement": "Public contracts must expose only the information consumers need.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-5-2-02",
+        "section": "5.2",
+        "requirement": "Avoid exposing internal implementation details.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-5-2-03",
+        "section": "5.2",
+        "requirement": "Prefer composition over inheritance unless inheritance models a genuine subtype relationship.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-5-2-04",
+        "section": "5.2",
+        "requirement": "Keep interfaces cohesive and small.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-5-2-05",
+        "section": "5.2",
+        "requirement": "Use dependency injection where it clarifies ownership and enables meaningful substitution, not as a mandatory ceremony for every object.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "high"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-5-2-06",
+        "section": "5.2",
+        "requirement": "Avoid generic abstractions that have only one trivial implementation and no concrete architectural purpose.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### 5.3 Separation of Concerns"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-5-3-01",
+        "section": "5.3",
+        "requirement": "Keep business rules independent of transport, storage, logging, and presentation.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-5-3-02",
+        "section": "5.3",
+        "requirement": "Separate parsing, validation, decision-making, and side effects when they have distinct responsibilities.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-5-3-03",
+        "section": "5.3",
+        "requirement": "Keep configuration, domain models, and external DTOs conceptually separate when their lifecycles differ.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-5-3-04",
+        "section": "5.3",
+        "requirement": "Avoid unnecessary mapping layers when they provide no meaningful isolation or validation.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-5-3-05",
+        "section": "5.3",
+        "requirement": "Keep the architecture proportionate to the application's actual complexity.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "## 6. API, Serialization & External Data"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-6-01",
+        "section": "6",
+        "requirement": "Define explicit schemas for data exchanged with external systems.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-6-02",
+        "section": "6",
+        "requirement": "Validate deserialized payloads before using them.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-6-03",
+        "section": "6",
+        "requirement": "Treat AI model responses as untrusted input, even when structured output or JSON mode is enabled.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "high"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-6-04",
+        "section": "6",
+        "requirement": "Never assume that a model response is correct merely because it parses successfully.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-6-05",
+        "section": "6",
+        "requirement": "Validate identifiers, paths, ranges, enum values, and cross-field constraints.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-6-06",
+        "section": "6",
+        "requirement": "Use deterministic serialization where output stability matters.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-6-07",
+        "section": "6",
+        "requirement": "Handle missing fields, additional fields, malformed responses, and unsupported schema versions deliberately.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-6-08",
+        "section": "6",
+        "requirement": "Keep internal domain models independent of provider-specific response formats.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-6-09",
+        "section": "6",
+        "requirement": "Avoid silently coercing invalid values into defaults.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "## 7. Security by Default"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-7-01",
+        "section": "7",
+        "requirement": "Apply least privilege to credentials, filesystem access, network access, and CI permissions.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "high"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-7-02",
+        "section": "7",
+        "requirement": "Never execute untrusted repository content as part of code review.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "high"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-7-03",
+        "section": "7",
+        "requirement": "Treat source code, comments, commit messages, filenames, and generated content as untrusted data, not privileged instructions.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "high"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-7-04",
+        "section": "7",
+        "requirement": "Do not allow external content to override system policy or trigger unauthorized tool use.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-7-05",
+        "section": "7",
+        "requirement": "Avoid command injection, path traversal, unsafe deserialization, and accidental secret disclosure.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "high"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-7-06",
+        "section": "7",
+        "requirement": "Use parameterized queries and safe process invocation APIs.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-7-07",
+        "section": "7",
+        "requirement": "Validate file paths against the intended repository boundary.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-7-08",
+        "section": "7",
+        "requirement": "Keep security-sensitive behavior explicit, testable, and fail-closed where appropriate.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "## 8. Testing & Verification"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-8-01",
+        "section": "8",
+        "requirement": "Every non-trivial business rule must have automated tests.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-8-02",
+        "section": "8",
+        "requirement": "Test observable behavior, edge cases, invalid inputs, and failure paths.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-8-03",
+        "section": "8",
+        "requirement": "Prefer deterministic unit tests with controlled dependencies.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-8-04",
+        "section": "8",
+        "requirement": "Avoid live network calls, live AI calls, and external service dependencies in the default unit test suite.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-8-05",
+        "section": "8",
+        "requirement": "Use integration tests for important boundaries and contracts.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-8-06",
+        "section": "8",
+        "requirement": "Do not write tests that merely mirror implementation details.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-8-07",
+        "section": "8",
+        "requirement": "Do not weaken assertions or delete tests simply to make a build pass.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-8-08",
+        "section": "8",
+        "requirement": "Run relevant tests, analyzers, formatters, and builds after changes.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-8-09",
+        "section": "8",
+        "requirement": "A change is not complete until verification succeeds or remaining failures are explicitly reported.",
+        "appliesTo": [],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "## 9. Language-Specific Enforcement"
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "Apply equivalent rules using each language's native features rather than forcing identical syntax across languages."
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### C# / .NET"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-9-cs-01",
+        "section": "9.CSharp",
+        "requirement": "Enable nullable reference types.",
+        "appliesTo": [
+          "*.cs"
+        ],
+        "detection": "static",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-9-cs-02",
+        "section": "9.CSharp",
+        "requirement": "Enable analyzers and treat relevant warnings as errors.",
+        "appliesTo": [
+          "*.cs"
+        ],
+        "detection": "static",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-9-cs-03",
+        "section": "9.CSharp",
+        "requirement": "Prefer `var` only when the assigned type is immediately obvious; otherwise use explicit types.",
+        "appliesTo": [
+          "*.cs"
+        ],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-9-cs-04",
+        "section": "9.CSharp",
+        "requirement": "Prefer `const` and `readonly` where appropriate.",
+        "appliesTo": [
+          "*.cs"
+        ],
+        "detection": "static",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-9-cs-05",
+        "section": "9.CSharp",
+        "requirement": "Use `async`/`await` correctly; avoid `async void` except for required event handlers.",
+        "appliesTo": [
+          "*.cs"
+        ],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-9-cs-06",
+        "section": "9.CSharp",
+        "requirement": "Pass `CancellationToken` through cancellable asynchronous operations.",
+        "appliesTo": [
+          "*.cs"
+        ],
+        "detection": "llm",
+        "severity": "high"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-9-cs-07",
+        "section": "9.CSharp",
+        "requirement": "Avoid `.Result` and `.Wait()` on asynchronous operations.",
+        "appliesTo": [
+          "*.cs"
+        ],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-9-cs-08",
+        "section": "9.CSharp",
+        "requirement": "Use structured logging and deterministic resource disposal.",
+        "appliesTo": [
+          "*.cs"
+        ],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-9-cs-09",
+        "section": "9.CSharp",
+        "requirement": "Avoid unnecessary LINQ chains when a straightforward loop is clearer or more efficient.",
+        "appliesTo": [
+          "*.cs"
+        ],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-9-cs-10",
+        "section": "9.CSharp",
+        "requirement": "Use the built-in dependency injection and configuration facilities when they provide sufficient functionality.",
+        "appliesTo": [
+          "*.cs"
+        ],
+        "detection": "llm",
+        "severity": "high"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "### TypeScript"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-9-ts-01",
+        "section": "9.TypeScript",
+        "requirement": "Enable `strict` and `strictNullChecks`.",
+        "appliesTo": [
+          "*.ts",
+          "*.tsx"
+        ],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-9-ts-02",
+        "section": "9.TypeScript",
+        "requirement": "Prohibit implicit `any`; avoid explicit `any`.",
+        "appliesTo": [
+          "*.ts",
+          "*.tsx"
+        ],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-9-ts-03",
+        "section": "9.TypeScript",
+        "requirement": "Prefer `unknown` at untrusted boundaries and narrow it through validation.",
+        "appliesTo": [
+          "*.ts",
+          "*.tsx"
+        ],
+        "detection": "llm",
+        "severity": "high"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-9-ts-04",
+        "section": "9.TypeScript",
+        "requirement": "Use `readonly` types where appropriate.",
+        "appliesTo": [
+          "*.ts",
+          "*.tsx"
+        ],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-9-ts-05",
+        "section": "9.TypeScript",
+        "requirement": "Avoid non-null assertions and unchecked type casts.",
+        "appliesTo": [
+          "*.ts",
+          "*.tsx"
+        ],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-9-ts-06",
+        "section": "9.TypeScript",
+        "requirement": "Validate runtime input; TypeScript types alone do not validate external data.",
+        "appliesTo": [
+          "*.ts",
+          "*.tsx"
+        ],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-9-ts-07",
+        "section": "9.TypeScript",
+        "requirement": "Use exhaustive checks for discriminated unions.",
+        "appliesTo": [
+          "*.ts",
+          "*.tsx"
+        ],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-9-ts-08",
+        "section": "9.TypeScript",
+        "requirement": "Use the `@/` path alias for imports of project-internal modules across directories (for example, `@/domain/User`). Do not use parent-directory traversal imports such as `../domain/User` or `../../domain/User` for these dependencies. Same-directory `./` imports and external package imports are allowed.",
+        "appliesTo": [
+          "*.ts",
+          "*.tsx"
+        ],
+        "detection": "llm",
+        "severity": "high",
+        "goodExample": "import { User } from \"@/models/User\";",
+        "badExample": "import { User } from \"../../models/User\";",
+        "exceptions": [
+          "Same-directory ./ imports",
+          "Third-party package imports"
+        ],
+        "enforcement": "eslint"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-9-ts-09",
+        "section": "9.TypeScript",
+        "requirement": "Configure the `@/*` alias in TypeScript (`compilerOptions.paths`) and consistently in the bundler/runtime, test runner, and other tools that resolve modules. A compiler-only alias is insufficient when runtime resolution differs.",
+        "appliesTo": [
+          "*.ts",
+          "*.tsx"
+        ],
+        "detection": "llm",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-9-ts-10",
+        "section": "9.TypeScript",
+        "requirement": "Enforce the project-internal alias convention through existing lint tooling and CI; reject newly introduced parent-directory traversal imports. Do not add a bespoke import-rule engine.",
+        "appliesTo": [
+          "*.ts",
+          "*.tsx"
+        ],
+        "detection": "llm",
+        "severity": "high"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "## 10. Automated Enforcement"
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "Enforce rules mechanically wherever practical."
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-10-01",
+        "section": "10",
+        "requirement": "Configure formatters, compiler checks, linters, and static analyzers.",
+        "appliesTo": [],
+        "detection": "manual",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-10-02",
+        "section": "10",
+        "requirement": "Run these checks in CI.",
+        "appliesTo": [],
+        "detection": "manual",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-10-03",
+        "section": "10",
+        "requirement": "Fail CI on compilation errors, relevant lint violations, and newly introduced prohibited patterns.",
+        "appliesTo": [],
+        "detection": "manual",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-10-04",
+        "section": "10",
+        "requirement": "Use targeted suppressions only when necessary, with a clear justification.",
+        "appliesTo": [],
+        "detection": "manual",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-10-05",
+        "section": "10",
+        "requirement": "Prefer existing tooling over custom scripts.",
+        "appliesTo": [],
+        "detection": "manual",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-10-06",
+        "section": "10",
+        "requirement": "Do not build a custom rule engine when standard tooling can enforce the requirement.",
+        "appliesTo": [],
+        "detection": "manual",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "## 11. Mandatory Workflow for AI-Assisted Changes"
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "Before implementing a change:"
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "1. Inspect the existing architecture and conventions."
+    },
+    {
+      "text": "2. Identify the smallest implementation that satisfies the requirement."
+    },
+    {
+      "text": "3. Reuse existing abstractions where appropriate."
+    },
+    {
+      "text": "4. Identify relevant security, error-handling, and testing requirements."
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "During implementation:"
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "1. Make focused, incremental changes."
+    },
+    {
+      "text": "2. Preserve existing behavior unless a change is explicitly required."
+    },
+    {
+      "text": "3. Avoid unrelated refactoring and speculative features."
+    },
+    {
+      "text": "4. Keep all changes consistent with this standard."
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "Before completion:"
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "1. Remove unused code, temporary diagnostics, and accidental artifacts."
+    },
+    {
+      "text": "2. Run formatting, static analysis, builds, and relevant tests."
+    },
+    {
+      "text": "3. Review the diff for unnecessary complexity, security issues, and contract violations."
+    },
+    {
+      "text": "4. Report verification results and any unresolved limitations honestly."
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "## 12. Definition of Done"
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "Code is complete only when:"
+    },
+    {
+      "text": ""
+    },
+    {
+      "rule": {
+        "id": "standard-12-01",
+        "section": "12",
+        "requirement": "It meets the requested behavior.",
+        "appliesTo": [],
+        "detection": "manual",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-12-02",
+        "section": "12",
+        "requirement": "Types and nullability are handled explicitly.",
+        "appliesTo": [],
+        "detection": "manual",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-12-03",
+        "section": "12",
+        "requirement": "Errors and side effects are controlled.",
+        "appliesTo": [],
+        "detection": "manual",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-12-04",
+        "section": "12",
+        "requirement": "Security boundaries are respected.",
+        "appliesTo": [],
+        "detection": "manual",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-12-05",
+        "section": "12",
+        "requirement": "Tests cover meaningful behavior and failure cases.",
+        "appliesTo": [],
+        "detection": "manual",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-12-06",
+        "section": "12",
+        "requirement": "Relevant automated checks pass.",
+        "appliesTo": [],
+        "detection": "manual",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-12-07",
+        "section": "12",
+        "requirement": "No unnecessary abstractions, dead code, or debug artifacts remain.",
+        "appliesTo": [],
+        "detection": "manual",
+        "severity": "medium"
+      }
+    },
+    {
+      "rule": {
+        "id": "standard-12-08",
+        "section": "12",
+        "requirement": "The implementation is the simplest design that meets the actual requirements.",
+        "appliesTo": [],
+        "detection": "manual",
+        "severity": "medium"
+      }
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "**Final rule:** Correctness over cleverness. Explicit behavior over hidden behavior. Simplicity over speculative flexibility. No abstraction without a reason."
+    },
+    {
+      "text": ""
+    }
+  ]
+}
