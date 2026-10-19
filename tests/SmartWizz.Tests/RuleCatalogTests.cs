@@ -29,7 +29,7 @@ public sealed class RuleCatalogTests
     [Fact]
     public void Selects_only_llm_rules_applicable_to_batch_files()
     {
-        RuleCatalog catalog = RuleCatalog.Parse(Sample);
+        var catalog = RuleCatalog.Parse(Sample);
         Assert.Equal("1.2.3", catalog.Version);
         Assert.Equal(64, catalog.Sha256.Length);
         Assert.Equal(["standard-cs-null"], catalog.Select(["src/Calc.cs"]).Select(rule => rule.Id));
@@ -42,7 +42,7 @@ public sealed class RuleCatalogTests
     [Fact]
     public void Selected_prompt_contains_ids_examples_and_exceptions_not_irrelevant_rules()
     {
-        RuleCatalog catalog = RuleCatalog.Parse(Sample);
+        var catalog = RuleCatalog.Parse(Sample);
         string prompt = RuleCatalog.BuildPrompt("BASE", catalog.Select(["web/app.ts"]));
         Assert.Contains("standard-ts-alias", prompt);
         Assert.Contains("import x from '../../x'", prompt);
@@ -82,7 +82,7 @@ public sealed class RuleCatalogTests
     [Fact]
     public void Rejects_unknown_and_inapplicable_standard_ids_but_keeps_generic_bug_findings()
     {
-        var files = GitDiff.Parse("""
+        List<FileDiff> files = GitDiff.Parse("""
             diff --git a/src/Calc.cs b/src/Calc.cs
             --- a/src/Calc.cs
             +++ b/src/Calc.cs
@@ -95,8 +95,8 @@ public sealed class RuleCatalogTests
                 message = "Fix this", filePath = "src/Calc.cs", startLine = 1, confidence = 0.9 } }
         });
 
-        RuleCatalog catalog = RuleCatalog.Parse(Sample);
-        HashSet<string> allowed = catalog.Select(["src/Calc.cs"]).Select(rule => rule.Id).ToHashSet();
+        var catalog = RuleCatalog.Parse(Sample);
+        var allowed = catalog.Select(["src/Calc.cs"]).Select(rule => rule.Id).ToHashSet();
         Assert.Single(Review.Parse(Finding("standard-cs-null"), files, 0.5, [], allowed));
         Assert.Single(Review.Parse(Finding("null-dereference"), files, 0.5, [], allowed));
         var unknown = new List<string>();
@@ -127,7 +127,7 @@ public sealed class RuleCatalogTests
         var stub = new StubHandler((_, _) => StubHandler.Chat(reply));
         var provider = new Provider(new HttpClient(stub),
             new ProviderConfig { Endpoint = "http://x/v1/chat/completions", Model = "m" }, null);
-        RuleCatalog catalog = RuleCatalog.Parse(Sample);
+        var catalog = RuleCatalog.Parse(Sample);
         ReviewResult result = await Review.RunAsync(files, new ReviewConfig(), provider, "BASE", default, catalog);
 
         Assert.Single(result.Findings);
