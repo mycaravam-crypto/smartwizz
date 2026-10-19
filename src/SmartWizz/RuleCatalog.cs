@@ -30,6 +30,8 @@ public sealed class EngineeringRule
 
 public sealed class RuleCatalog
 {
+    static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
+
     sealed class Document
     {
         public int SchemaVersion { get; set; }
@@ -61,7 +63,7 @@ public sealed class RuleCatalog
         Document? doc;
         try
         {
-            doc = JsonSerializer.Deserialize<Document>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            doc = JsonSerializer.Deserialize<Document>(json, Json);
         }
         catch (JsonException e)
         {
