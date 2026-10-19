@@ -12,7 +12,7 @@
     "contextLines": 10,
     "maxCharsPerRequest": 60000,
     "minConfidence": 0.5,
-    "guidelines": "ENGINEERING_STANDARD.md" // optional; relative to this config file. Remove if you have none.
+    "guidelines": "rules/engineering-rules.json" // optional; relative to this config file. Remove if you have none.
     // "exclude": ["*.lock", "*.min.js", "*/Migrations/*"]  -- replaces the built-in list
   },
   "azureDevOps": {

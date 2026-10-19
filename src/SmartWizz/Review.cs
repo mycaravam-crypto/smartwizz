@@ -29,14 +29,20 @@ public sealed class ReviewResult
     public List<Finding> Findings { get; set; } = [];
     public List<SkippedFile> SkippedFiles { get; } = [];
     public List<string> Rejected { get; } = [];
+    public string? RulesetVersion { get; set; }
+    public string? RulesetSha256 { get; set; }
+    public long SystemPromptCharacters { get; set; }
+    public long UserPromptCharacters { get; set; }
+    public long? PromptTokens { get; set; }
+    public long? CompletionTokens { get; set; }
 }
 
 public static partial class Review
 {
     public static async Task<ReviewResult> RunAsync(
-        List<FileDiff> files, ReviewConfig cfg, Provider provider, string systemPrompt, CancellationToken ct)
+        List<FileDiff> files, ReviewConfig cfg, Provider provider, string systemPrompt, CancellationToken ct, RuleCatalog? catalog = null)
     {
-        var result = new ReviewResult();
+        var result = new ReviewResult { RulesetVersion = catalog?.Version, RulesetSha256 = catalog?.Sha256 };
         var batches = new List<List<FileDiff>>();
         var batch = new List<FileDiff>();
         int size = 0;
@@ -66,16 +72,36 @@ public static partial class Review
         if (batch.Count > 0) batches.Add(batch);
 
         var all = new List<Finding>();
+        long promptTokens = 0;
+        long completionTokens = 0;
+        bool completeUsage = batches.Count > 0;
         // Sequential on purpose: keeps request rate and provider quota use predictable.
         foreach (List<FileDiff> b in batches)
         {
-            Completion reply = await provider.CompleteAsync(systemPrompt, BuildUserMessage(b, files.Select(f => f.Path)), ct);
+            List<EngineeringRule>? selected = catalog?.Select(b.Select(f => f.Path));
+            string prompt = selected is null ? systemPrompt : RuleCatalog.BuildPrompt(systemPrompt, selected);
+            string userMessage = BuildUserMessage(b, files.Select(f => f.Path));
+            result.SystemPromptCharacters += prompt.Length;
+            result.UserPromptCharacters += userMessage.Length;
+            Completion reply = await provider.CompleteAsync(prompt, userMessage, ct);
+            if (reply.PromptTokens is { } inputTokens && reply.CompletionTokens is { } outputTokens)
+            {
+                promptTokens += inputTokens;
+                completionTokens += outputTokens;
+            }
+            else completeUsage = false;
             if (!result.Models.Contains(reply.Model)) result.Models.Add(reply.Model);
-            all.AddRange(Parse(reply.Content, b.ToDictionary(f => f.Path), cfg.MinConfidence, result.Rejected));
+            var allowedRuleIds = selected?.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
+            all.AddRange(Parse(reply.Content, b.ToDictionary(f => f.Path), cfg.MinConfidence, result.Rejected, allowedRuleIds));
             result.ReviewedFiles += b.Count;
         }
 
         result.Findings = Dedupe(all);
+        if (completeUsage)
+        {
+            result.PromptTokens = promptTokens;
+            result.CompletionTokens = completionTokens;
+        }
         return result;
     }
 
@@ -113,7 +139,8 @@ public static partial class Review
     }
 
     public static List<Finding> Parse(
-        string reply, IReadOnlyDictionary<string, FileDiff> files, double minConfidence, List<string> rejected)
+        string reply, IReadOnlyDictionary<string, FileDiff> files, double minConfidence, List<string> rejected,
+        IReadOnlySet<string>? allowedRuleIds = null)
     {
         // Tolerates prose or ```json fences around the object.
         int start = reply.IndexOf('{'), end = reply.LastIndexOf('}');
@@ -134,7 +161,7 @@ public static partial class Review
             var list = new List<Finding>();
             foreach (JsonElement e in arr.EnumerateArray())
             {
-                Finding? f = Validate(e, files, minConfidence, out string? reason);
+                Finding? f = Validate(e, files, minConfidence, allowedRuleIds, out string? reason);
                 if (f is null) rejected.Add(reason);
                 else list.Add(f);
             }
@@ -142,7 +169,8 @@ public static partial class Review
         }
     }
 
-    static Finding? Validate(JsonElement e, IReadOnlyDictionary<string, FileDiff> files, double minConfidence, out string reason)
+    static Finding? Validate(JsonElement e, IReadOnlyDictionary<string, FileDiff> files, double minConfidence,
+        IReadOnlySet<string>? allowedRuleIds, out string reason)
     {
         reason = "";
         if (e.ValueKind != JsonValueKind.Object) return Reject(out reason, "finding is not an object");
@@ -175,6 +203,9 @@ public static partial class Review
             return Reject(out reason, $"{path}:{start}: below minConfidence");
 
         ruleId = Sanitize(ruleId, false);
+        if (ruleId.StartsWith("standard-", StringComparison.OrdinalIgnoreCase) && allowedRuleIds is not null
+            && !allowedRuleIds.Contains(ruleId))
+            return Reject(out reason, $"{path}:{start}: unknown or inapplicable standard ruleId {ruleId}");
         return new Finding(ruleId, sev.Value, Cap(Sanitize(title, false), 200), Cap(Sanitize(message, true), 4000), path, start.Value,
             end == start ? null : end, conf.Value, Fingerprint(ruleId, path, startText));
     }

@@ -50,7 +50,7 @@ See [`smartwizz.example.json`](smartwizz.example.json). Notable settings:
 - `review.exclude` — glob patterns matched against path and file name; replaces the built-in list (lockfiles, minified, generated, migrations).
 - `provider.temperature` — `null` to omit for models that reject it.
 - `provider.maxRetries` (default 2) and `provider.fallbackModels` (default none) — see *Overload handling* below.
-- `review.guidelines` — path (relative to the config file) to a markdown engineering standard, e.g. [`ENGINEERING_STANDARD.md`](ENGINEERING_STANDARD.md). Violations come back as findings with `ruleId` `standard-*`. Keep it in the trusted SmartWizz repo in CI, so a PR can't rewrite the rules it's checked against.
+- `review.guidelines` — path (relative to the config file) to a trusted versioned [JSON engineering rule catalog](rules/README.md) (`rules/engineering-rules.json`, default) or legacy Markdown standard. Only applicable LLM rules are injected per request batch. JSON standards enforce an exact `standard-*` rule ID allowlist and record `rulesetVersion` / `rulesetSha256` in the report. Keep this file in the trusted SmartWizz checkout in CI, never the untrusted PR.
 
 Secrets are read only from the environment. For local runs you can put them in a git-ignored `./.env` (see [`.env.example`](.env.example)). Variables that are already set take precedence.
 
@@ -183,7 +183,7 @@ Security notes:
 
 ## Engineering standard at a glance
 
-[ENGINEERING_STANDARD.md](ENGINEERING_STANDARD.md) is mandatory for production code, tests, configuration, build scripts, CI and AI-assisted changes. This table is a **summary, not a replacement** for the full normative text. Rules that cannot be checked mechanically still require a review.
+[ENGINEERING_STANDARD.md](ENGINEERING_STANDARD.md) is generated from the canonical [rules/engineering-rules.json](rules/engineering-rules.json) using `python3 tools/engineering_rules.py --write`. CI verifies synchronization. Its requirements are mandatory for production code, tests, configuration, build scripts, CI and AI-assisted changes. This table is a **summary, not a replacement** for the full normative text. Rules that cannot be checked mechanically still require a review.
 
 | Section | Required rule (summary) | Verification focus |
 |---|---|---|
@@ -207,12 +207,14 @@ Security notes:
 Same checks as CI (`.github/workflows/ci.yml`):
 
 ```sh
+python3 tools/engineering_rules.py --check  # generated Markdown has not drifted
 dotnet format --verify-no-changes   # whitespace + .editorconfig style; run `dotnet format` to fix
 dotnet build -c Release             # analyzers + code style enforced, warnings are errors
 dotnet test -c Release
 ```
 
 - `global.json` pins the SDK.
+- `rules/engineering-rules.json` contains stable IDs, enforcement type, severity, language scopes and optional examples/exceptions. The LLM receives only applicable rules, while mechanical rules belong in compiler, analyzer and linter checks. Catalog version and SHA-256 identify each benchmark run.
 - `.editorconfig` encodes the mechanical rules of [`ENGINEERING_STANDARD.md`](ENGINEERING_STANDARD.md): explicit types unless obvious, no unused code, readonly fields.
 - Tests stub all HTTP and need no credentials. They make no live model or Azure DevOps calls.
 - One test starts a fake `git` (Linux only) to prove cancellation kills the git process.

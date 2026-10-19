@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 
 namespace SmartWizz;
 
-public sealed record Completion(string Content, string Model);
+public sealed record Completion(string Content, string Model, int? PromptTokens = null, int? CompletionTokens = null);
 
 // OpenAI-compatible chat-completions client. Works with hosted and local servers (Ollama, vLLM, LM Studio, ...).
 // Overload answers (429/5xx) and dropped connections are retried, then the next fallback model is tried.
@@ -20,7 +20,8 @@ public sealed class Provider(
 
     readonly Func<TimeSpan, CancellationToken, Task> _delay = delay ?? Task.Delay;
 
-    sealed record Attempt(string? Content, SmartWizzException? Error, bool Retryable, TimeSpan? RetryAfter);
+    sealed record Attempt(string? Content, SmartWizzException? Error, bool Retryable, TimeSpan? RetryAfter,
+        int? PromptTokens = null, int? CompletionTokens = null);
 
     public async Task<Completion> CompleteAsync(string system, string user, CancellationToken ct)
     {
@@ -35,7 +36,7 @@ public sealed class Provider(
             {
                 Attempt result = await SendOnceAsync(cfg.Endpoint, models[m], system, user, ct);
                 if (result.Content is not null)
-                    return new Completion(result.Content, models[m]);
+                    return new Completion(result.Content, models[m], result.PromptTokens, result.CompletionTokens);
 
                 lastError = result.Error!;
                 if (!result.Retryable)
@@ -107,9 +108,18 @@ public sealed class Provider(
         {
             using var doc = JsonDocument.Parse(body);
             string? content = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
+            int? promptTokens = null;
+            int? completionTokens = null;
+            if (doc.RootElement.TryGetProperty("usage", out JsonElement usage) && usage.ValueKind == JsonValueKind.Object)
+            {
+                if (usage.TryGetProperty("prompt_tokens", out JsonElement prompt) && prompt.TryGetInt32(out int promptCount))
+                    promptTokens = promptCount;
+                if (usage.TryGetProperty("completion_tokens", out JsonElement completion) && completion.TryGetInt32(out int completionCount))
+                    completionTokens = completionCount;
+            }
             return string.IsNullOrWhiteSpace(content)
                 ? throw new SmartWizzException(FailureKind.Provider, "provider returned empty content")
-                : new Attempt(content, null, Retryable: false, null);
+                : new Attempt(content, null, Retryable: false, null, promptTokens, completionTokens);
         }
         catch (Exception e) when (e is JsonException or KeyNotFoundException or IndexOutOfRangeException or InvalidOperationException)
         {

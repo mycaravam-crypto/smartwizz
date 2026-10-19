@@ -25,6 +25,19 @@ public class ProviderTests
     }
 
     [Fact]
+    public async Task Reads_optional_provider_token_usage()
+    {
+        const string reply = """
+            {"choices":[{"message":{"role":"assistant","content":"ok"}}],
+             "usage":{"prompt_tokens":128,"completion_tokens":42}}
+            """;
+        var handler = new StubHandler((_, _) => StubHandler.Json(reply));
+        Completion completion = await Make(handler).CompleteAsync("sys", "user", default);
+        Assert.Equal(128, completion.PromptTokens);
+        Assert.Equal(42, completion.CompletionTokens);
+    }
+
+    [Fact]
     public async Task Omits_temperature_when_null()
     {
         var h = new StubHandler((_, _) => StubHandler.Chat("ok"));

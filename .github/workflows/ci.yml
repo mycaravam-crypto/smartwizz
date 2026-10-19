@@ -22,6 +22,12 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Verify generated engineering standard
+        run: python3 tools/engineering_rules.py --check
+
+      - name: Verify benchmark scoring
+        run: python3 -m unittest discover -s benchmarks -p 'test_*.py'
+
       - name: Restore
         run: dotnet restore
 
