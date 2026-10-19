@@ -99,7 +99,7 @@
           "*.props",
           "*.toml"
         ],
-        "detection": "static",
+        "detection": "llm",
         "severity": "medium"
       }
     },
