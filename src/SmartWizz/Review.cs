@@ -182,7 +182,7 @@ public static partial class Review
             return Reject(out reason, $"{path}:{start}: below minConfidence");
 
         ruleId = Sanitize(ruleId, false);
-        if (ruleId.StartsWith("standard-", StringComparison.Ordinal) && allowedRuleIds is not null
+        if (ruleId.StartsWith("standard-", StringComparison.OrdinalIgnoreCase) && allowedRuleIds is not null
             && !allowedRuleIds.Contains(ruleId))
             return Reject(out reason, $"{path}:{start}: unknown or inapplicable standard ruleId {ruleId}");
         return new Finding(ruleId, sev.Value, Cap(Sanitize(title, false), 200), Cap(Sanitize(message, true), 4000), path, start.Value,
