@@ -17,6 +17,7 @@ The ground truth should **not** be included in the defective PR. Only seed cases
 - **Recall** = matched distinct seeded defects / total seeded defects.
 - **Precision** = distinct matched findings / total findings; unmatched and duplicate findings are false positives until manually adjudicated.
 - **F1** = harmonic mean of precision and recall.
+- **LLM prompt cost:** compare `systemPromptCharacters` and `userPromptCharacters` (exact characters sent per batch). When the model API supplies complete usage metadata, also compare `promptTokens` and `completionTokens`; missing token counts are `null`, not zero. Character counts are not token estimates.
 - **False negatives** = seeded cases not matched.
 - Record exact model, configuration, commit SHA, ruleset version and SHA-256, plus review time and manual adjudication. Repeat runs to quantify nondeterminism; use the same pinned model/config/fixture for controlled before/after comparisons.
 
