@@ -71,7 +71,7 @@ public sealed class RuleCatalogTests
     {
         string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../.."));
         string rulesPath = Path.Combine(root, "rules", "engineering-rules.json");
-        RuleCatalog catalog = RuleCatalog.Load(rulesPath);
+        var catalog = RuleCatalog.Load(rulesPath);
 
         Assert.Equal(172, catalog.Rules.Count);
         Assert.Empty(catalog.Select(["README.md"]));
