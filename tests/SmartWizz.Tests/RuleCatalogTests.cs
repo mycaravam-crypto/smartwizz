@@ -96,7 +96,7 @@ public sealed class RuleCatalogTests
     [Fact]
     public void Rejects_unknown_and_inapplicable_standard_ids_but_keeps_generic_bug_findings()
     {
-        Dictionary<string, FileDiff> files = GitDiff.Parse("""
+        var files = GitDiff.Parse("""
             diff --git a/src/Calc.cs b/src/Calc.cs
             --- a/src/Calc.cs
             +++ b/src/Calc.cs
