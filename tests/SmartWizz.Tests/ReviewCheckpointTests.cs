@@ -10,7 +10,7 @@ public class ReviewCheckpointTests
     {
         string firstSha = new('a', 40), nextSha = new('b', 40);
         var original = ReviewCheckpoint.Merge(firstSha, null, [Issue("first")]);
-        ReviewCheckpoint next = ReviewCheckpoint.Merge(nextSha, original, [Issue("second")]);
+        var next = ReviewCheckpoint.Merge(nextSha, original, [Issue("second")]);
 
         Assert.Equal(nextSha, next.HeadSha);
         Assert.Equal(2, next.OpenFindings.Count);
@@ -21,7 +21,7 @@ public class ReviewCheckpointTests
     public void Duplicate_fingerprint_is_not_added_twice()
     {
         var previous = ReviewCheckpoint.Merge(new string('a', 40), null, [Issue("same")]);
-        ReviewCheckpoint next = ReviewCheckpoint.Merge(new string('b', 40), previous, [Issue("same", Severity.Critical)]);
+        var next = ReviewCheckpoint.Merge(new string('b', 40), previous, [Issue("same", Severity.Critical)]);
         Finding finding = Assert.Single(next.OpenFindings);
         Assert.Equal(Severity.Critical, finding.Severity);
     }
@@ -29,7 +29,7 @@ public class ReviewCheckpointTests
     [Fact]
     public void Checkpoint_records_review_scope()
     {
-        var state = ReviewCheckpoint.Merge(new string('a', 40), null, [Issue("x")], new string('b', 64));
+        ReviewCheckpoint state = ReviewCheckpoint.Merge(new string('a', 40), null, [Issue("x")], new string('b', 64));
         Assert.Equal(new string('b', 64), state.ReviewScopeSha256);
     }
 
