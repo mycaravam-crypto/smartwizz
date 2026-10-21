@@ -1,4 +1,7 @@
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 
 namespace SmartWizz;
 
@@ -93,28 +96,36 @@ public static class Program
         var cfg = Config.Load(opt.ConfigPath, Environment.GetEnvironmentVariable);
         if (Uri.TryCreate(cfg.Provider.Endpoint, UriKind.Absolute, out Uri? endpoint) && endpoint.Scheme == Uri.UriSchemeHttp && !endpoint.IsLoopback)
             Console.Error.WriteLine("warning: provider endpoint uses plain HTTP; code and API key are sent unencrypted");
+        string? guidelines = cfg.Review.Guidelines;
+        RuleCatalog? catalog = guidelines is not null && Path.GetExtension(guidelines).Equals(".json", StringComparison.OrdinalIgnoreCase)
+            ? RuleCatalog.Load(guidelines) : null;
+        string? legacyStandard = guidelines is not null && catalog is null ? await File.ReadAllTextAsync(guidelines, ct) : null;
+        string systemPrompt = Review.SystemPrompt(LoadPrompt(), legacyStandard);
+        string scopeMaterial = JsonSerializer.Serialize(cfg) + systemPrompt + (catalog?.Sha256 ?? "");
+        string reviewScope = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(scopeMaterial)));
         ReviewCheckpoint? previous = ReviewCheckpoint.Load(opt.StateIn);
+        if (previous is not null && !string.Equals(previous.ReviewScopeSha256, reviewScope, StringComparison.Ordinal))
+        {
+            Console.Error.WriteLine("warning: review configuration changed; rebuilding the complete PR checkpoint");
+            previous = null;
+        }
         if (previous is not null && !string.Equals(previous.HeadSha, opt.Since, StringComparison.OrdinalIgnoreCase))
             throw new SmartWizzException(FailureKind.Configuration, "checkpoint head SHA does not match --since");
-        bool incremental = opt.Since is not null && await GitDiff.IsAncestorAsync(opt.Repo, opt.Since, opt.Head, ct);
+        bool incremental = opt.Since is not null && (opt.StateIn is null || previous is not null)
+            && await GitDiff.IsAncestorAsync(opt.Repo, opt.Since, opt.Head, ct);
         if (!incremental) previous = null; // A full review must not inherit stale findings from rewritten history.
         List<FileDiff> files = GitDiff.Parse(await GitDiff.RunIncrementalAsync(opt.Repo, opt.Base!, opt.Head, incremental ? opt.Since : null, cfg.Review.ContextLines, ct));
 
         // No client-wide timeout: Provider and AzureDevOpsPublisher bound every request with their configured timeout.
         using HttpClient http = new() { Timeout = Timeout.InfiniteTimeSpan };
         Provider provider = new(http, cfg.Provider, Environment.GetEnvironmentVariable("SMARTWIZZ_API_KEY"), log: Console.Error);
-        string? guidelines = cfg.Review.Guidelines;
-        RuleCatalog? catalog = guidelines is not null && Path.GetExtension(guidelines).Equals(".json", StringComparison.OrdinalIgnoreCase)
-            ? RuleCatalog.Load(guidelines) : null;
-        string? legacyStandard = guidelines is not null && catalog is null ? await File.ReadAllTextAsync(guidelines, ct) : null;
-        ReviewResult result = await Review.RunAsync(files, cfg.Review, provider,
-            Review.SystemPrompt(LoadPrompt(), legacyStandard), ct, catalog);
+        ReviewResult result = await Review.RunAsync(files, cfg.Review, provider, systemPrompt, ct, catalog);
 
         ReviewCheckpoint? next = null;
         if (opt.StateOut is not null)
         {
             string headSha = await GitDiff.ResolveShaAsync(opt.Repo, opt.Head, ct);
-            next = ReviewCheckpoint.Merge(headSha, previous, result.Findings);
+            next = ReviewCheckpoint.Merge(headSha, previous, result.Findings, reviewScope);
         }
 
         Report.WriteConsole(result, Console.Out);
