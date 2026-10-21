@@ -40,7 +40,15 @@ dotnet run --project src/SmartWizz -- --repo ../my-repo --base origin/main
 
 A failure in any request batch fails the whole run; a partial review is never reported as complete.
 
-## Incremental review (initial implementation)\n\nWithout `--since`, SmartWizz reviews the complete PR diff. With `--since <40-character-SHA>`, it checks Git ancestry and reviews changes introduced since that SHA. A rewritten history causes a safe full-PR fallback. The caller must provide a trusted SHA of a previously **successfully completed** review; do not advance it after a failed run.\n\nThis is the first building block for issue #11, **not yet an automatic stateful review**: the GitHub reusable workflow does not currently retrieve or persist review state, and existing unresolved findings are not yet revalidated or included in `--fail-on`. Until those mechanisms are implemented, do not rely on `--since` alone as a PR quality gate.\n\n## Configuration
+## Incremental review (in progress, issue #11)
+
+Without `--since`, SmartWizz reviews the full PR diff. With `--since <40-character-SHA>`, it reviews only changes since the last successfully reviewed ancestor commit; rewritten history triggers a full review.
+
+The optional `--state-out <path>` writes a versioned checkpoint after a completed review. To consume one, provide both `--since <sha>` and `--state-in <path>` as well as `--state-out <path>`. The checkpoint SHA must match `--since`. Open findings carry forward and contribute to the `--fail-on` gate; a rewritten history discards the prior checkpoint and triggers a full review.
+
+**Important limitations:** The reusable GitHub Actions workflow does not yet persist and restore checkpoints. Existing findings are conservatively retained, not automatically validated as resolved. Thus fixes can leave the gate blocked until finding-resolution logic is implemented. Only load checkpoints stored by trusted CI, not PR-controlled files. This feature is not ready to act as the sole required PR quality gate.
+
+## Configuration
 
 See [`smartwizz.example.json`](smartwizz.example.json). Notable settings:
 
