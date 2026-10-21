@@ -8,6 +8,7 @@ public sealed class ReviewCheckpoint
 {
     public int Version { get; set; } = 1;
     public string HeadSha { get; set; } = "";
+    public string? ReviewScopeSha256 { get; set; }
     public List<Finding> OpenFindings { get; set; } = [];
 
     static readonly JsonSerializerOptions Json = new()
@@ -36,12 +37,12 @@ public sealed class ReviewCheckpoint
     }
 
     // Carry unresolved issues forward; refresh findings repeated in the delta. Never silently resolve.
-    public static ReviewCheckpoint Merge(string headSha, ReviewCheckpoint? previous, IEnumerable<Finding> newFindings)
+    public static ReviewCheckpoint Merge(string headSha, ReviewCheckpoint? previous, IEnumerable<Finding> newFindings, string? reviewScopeSha256 = null)
     {
         if (!System.Text.RegularExpressions.Regex.IsMatch(headSha, "^[0-9a-fA-F]{40}$"))
             throw new SmartWizzException(FailureKind.Usage, "checkpoint head must be a full commit SHA");
         List<Finding> merged = Review.Dedupe((previous?.OpenFindings ?? []).Concat(newFindings));
-        return new ReviewCheckpoint { HeadSha = headSha, OpenFindings = merged };
+        return new ReviewCheckpoint { HeadSha = headSha, ReviewScopeSha256 = reviewScopeSha256, OpenFindings = merged };
     }
 
     public void Save(string path)
