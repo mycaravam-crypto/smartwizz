@@ -39,7 +39,7 @@ public class ReviewCheckpointTests
         string path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json");
         try
         {
-            var state = ReviewCheckpoint.Merge(new string('a', 40), null, [Issue("persistent")]);
+            ReviewCheckpoint state = ReviewCheckpoint.Merge(new string('a', 40), null, [Issue("persistent")]);
             state.Save(path);
             var restored = ReviewCheckpoint.Load(path)!;
             Assert.Equal(state.HeadSha, restored.HeadSha);
