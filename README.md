@@ -22,7 +22,7 @@ dotnet run --project src/SmartWizz -- --repo ../my-repo --base origin/main
 | Option | Meaning |
 |---|---|
 | `--base <ref>` | Branch/commit the PR merges into (required). Diff is `base...head` (from the merge-base). |
-| `--head <ref>` | PR head, default `HEAD`. |
+| `--head <ref>` | PR head, default `HEAD`. |\n| `--since <sha>` | Optional full SHA of the last successfully reviewed commit. Review only changes since it when it is an ancestor of head; otherwise fall back to a full PR review. |
 | `--repo <path>` | Git checkout, default current directory. |
 | `--config <path>` | Config file, default `./smartwizz.json` if present. |
 | `--json <path>` | Also write the JSON report. |
@@ -40,7 +40,7 @@ dotnet run --project src/SmartWizz -- --repo ../my-repo --base origin/main
 
 A failure in any request batch fails the whole run; a partial review is never reported as complete.
 
-## Configuration
+## Incremental review (initial implementation)\n\nWithout `--since`, SmartWizz reviews the complete PR diff. With `--since <40-character-SHA>`, it checks Git ancestry and reviews changes introduced since that SHA. A rewritten history causes a safe full-PR fallback. The caller must provide a trusted SHA of a previously **successfully completed** review; do not advance it after a failed run.\n\nThis is the first building block for issue #11, **not yet an automatic stateful review**: the GitHub reusable workflow does not currently retrieve or persist review state, and existing unresolved findings are not yet revalidated or included in `--fail-on`. Until those mechanisms are implemented, do not rely on `--since` alone as a PR quality gate.\n\n## Configuration
 
 See [`smartwizz.example.json`](smartwizz.example.json). Notable settings:
 
