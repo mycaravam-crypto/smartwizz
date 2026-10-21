@@ -13,6 +13,8 @@ public static class Program
           --repo <path>       Git checkout (default: current directory)
           --config <path>     Config file (default: ./smartwizz.json if present)
           --json <path>       Also write the JSON report to this file
+          --state-in <path>  Load previous review checkpoint (requires --since)
+          --state-out <path> Write review checkpoint after a completed review
           --fail-on <sev>     Exit 1 if any finding is at/above low|medium|high|critical
           --publish           Post findings as Azure DevOps PR threads
           --publish-github    Post findings as inline comments of one GitHub PR review
@@ -103,6 +105,14 @@ public static class Program
         ReviewResult result = await Review.RunAsync(files, cfg.Review, provider,
             Review.SystemPrompt(LoadPrompt(), legacyStandard), ct, catalog);
 
+        ReviewCheckpoint? previous = ReviewCheckpoint.Load(opt.StateIn);
+        ReviewCheckpoint? next = null;
+        if (opt.StateOut is not null)
+        {
+            string headSha = await GitDiff.ResolveShaAsync(opt.Repo, opt.Head, ct);
+            next = ReviewCheckpoint.Merge(headSha, previous, result.Findings);
+        }
+
         Report.WriteConsole(result, Console.Out);
         if (opt.JsonPath is not null)
             await File.WriteAllTextAsync(opt.JsonPath, Report.ToJson(result), ct);
@@ -120,7 +130,8 @@ public static class Program
             Console.WriteLine($"\nPosted {posted} inline comment(s) as a GitHub review; {present} already present.");
         }
 
-        return Review.ExitCode(result.Findings, opt.FailOn);
+        if (opt.StateOut is not null) next!.Save(opt.StateOut);
+        return Review.ExitCode(next?.OpenFindings ?? result.Findings, opt.FailOn);
     }
 
     static string LoadPrompt()
@@ -140,6 +151,8 @@ public sealed record Options
     public string Repo { get; init; } = ".";
     public string? ConfigPath { get; init; }
     public string? JsonPath { get; init; }
+    public string? StateIn { get; init; }
+    public string? StateOut { get; init; }
     public Severity? FailOn { get; init; }
     public bool Publish { get; init; }
     public bool PublishGitHub { get; init; }
@@ -159,6 +172,8 @@ public sealed record Options
                 "--repo" => o with { Repo = Value() },
                 "--config" => o with { ConfigPath = Value() },
                 "--json" => o with { JsonPath = Value() },
+                "--state-in" => o with { StateIn = Value() },
+                "--state-out" => o with { StateOut = Value() },
                 "--fail-on" => o with { FailOn = Review.ParseSeverity(Value()) ?? throw new SmartWizzException(FailureKind.Usage, $"invalid severity: {args[i]}") },
                 "--publish" => o with { Publish = true },
                 "--publish-github" => o with { PublishGitHub = true },
@@ -166,6 +181,8 @@ public sealed record Options
                 _ => throw new SmartWizzException(FailureKind.Usage, $"unknown argument: {args[i]}"),
             };
         }
+        if (o.StateIn is not null && (o.Since is null || o.StateOut is null))
+            throw new SmartWizzException(FailureKind.Usage, "--state-in requires --since and --state-out");
         if (o.Since is not null && !System.Text.RegularExpressions.Regex.IsMatch(o.Since, "^[0-9a-fA-F]{40}$"))
             throw new SmartWizzException(FailureKind.Usage, "--since must be a full 40-character commit SHA");
         if (!o.Help && string.IsNullOrWhiteSpace(o.Base))
