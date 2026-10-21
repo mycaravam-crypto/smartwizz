@@ -248,6 +248,9 @@ public static partial class Review
 
     static string Cap(string s, int n) => s.Length <= n ? s : s[..n] + "...";
 
+    // Single-line model text, safe for terminals, logs and PR comments.
+    public static string Clean(string text, int maxLength) => Cap(Sanitize(text, false), maxLength);
+
     [GeneratedRegex(@"\s+")]
     private static partial Regex Whitespace();
 

@@ -6,12 +6,17 @@
 #       permissions:
 #         contents: read
 #         pull-requests: write   # inline review comments
+#         actions: read          # restore the previous review checkpoint (without it every run is a full review)
 #       uses: mycaravam-crypto/smartwizz/.github/workflows/review.yml@main
 #       secrets:
 #         SMARTWIZZ_API_KEY: ${{ secrets.SMARTWIZZ_API_KEY }}
 #
 # Results go to the job summary and a JSON artifact and, with `comments` (default on), to one PR review with an
 # inline comment per new finding. The review never approves or requests changes.
+#
+# After the first complete review, each push reviews only the commits since the last successful review. Earlier
+# findings stay in the --fail-on gate until a re-check of the current code confirms them fixed. Fork PRs, rewritten
+# history and missing or untrusted checkpoints always get a complete review.
 name: SmartWizz review
 
 on:
@@ -45,6 +50,10 @@ on:
         description: Post new findings as inline comments of one PR review.
         type: boolean
         default: true
+      full-review:
+        description: Review the complete PR diff even when a checkpoint exists (e.g. security or release review).
+        type: boolean
+        default: false
     secrets:
       SMARTWIZZ_API_KEY:
         required: false
@@ -82,29 +91,44 @@ jobs:
         with:
           global-json-file: smartwizz/global.json
 
+      # Only state stored by this repository's own runs for this PR's branch is used; anything else means a full review.
+      # The tool re-validates it (version, configuration hash, ancestry of the stored SHA) before trusting it.
       - name: Restore previous review checkpoint
         id: checkpoint
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.head_ref }}
+          REPOSITORY_ID: ${{ github.repository_id }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          complete() { echo "::warning::$1; running a complete review"; exit 0; }
           name="smartwizz-checkpoint-pr-$PR_NUMBER"
-          # The artifact list is newest-first. Missing state triggers the full initial review.
-          id="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
-            --jq 'first(.artifacts[] | select(.expired == false and .name == "'"$name"'") | .id) // empty')"
-          if [ -n "$id" ]; then
-            mkdir -p checkpoint-restore
-            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > checkpoint.zip
-            unzip -p checkpoint.zip review-checkpoint.json > checkpoint-restore/review-checkpoint.json
-            sha="$(jq -r '.headSha // empty' checkpoint-restore/review-checkpoint.json)"
-            if [[ "$sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
-              echo "since=$sha" >> "$GITHUB_OUTPUT"
-              echo "state=../checkpoint-restore/review-checkpoint.json" >> "$GITHUB_OUTPUT"
-            else
-              echo "::warning::Invalid checkpoint SHA; using full PR review"
-            fi
+          artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$name&per_page=100")" \
+            || complete "cannot list checkpoint artifacts (does the caller grant actions: read?)"
+          # Newest unexpired checkpoint from a same-repository run on this PR's branch. Fork runs are never trusted.
+          pick="$(jq -c --arg branch "$HEAD_REF" --argjson repo "$REPOSITORY_ID" '
+            [.artifacts[] | select(.expired == false and .size_in_bytes < 5000000
+              and .workflow_run.repository_id == $repo and .workflow_run.head_repository_id == $repo
+              and .workflow_run.head_branch == $branch)]
+            | sort_by(.created_at) | last // empty' <<<"$artifacts")" || complete "cannot read the artifact list"
+          if [ -z "$pick" ]; then
+            echo "No checkpoint for this PR yet; running a complete review"
+            exit 0
           fi
+          id="$(jq -r '.id' <<<"$pick")"
+          run_sha="$(jq -r '.workflow_run.head_sha' <<<"$pick")"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > checkpoint.zip || complete "cannot download the checkpoint"
+          mkdir -p checkpoint-restore
+          unzip -p checkpoint.zip review-checkpoint.json | head -c 5000000 > checkpoint-restore/review-checkpoint.json \
+            || complete "checkpoint artifact is malformed"
+          sha="$(jq -r '.headSha // empty' checkpoint-restore/review-checkpoint.json 2>/dev/null)"
+          # The run that stored the checkpoint must have reviewed exactly the commit the checkpoint names.
+          if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]] || [ "$sha" != "$run_sha" ]; then
+            complete "checkpoint does not match the run that stored it"
+          fi
+          echo "since=$sha" >> "$GITHUB_OUTPUT"
+          echo "state=../checkpoint-restore/review-checkpoint.json" >> "$GITHUB_OUTPUT"
 
       # Inputs go through env, never inline into the script, to rule out script injection.
       # Runs from the SmartWizz checkout: config, standard and any .env come from there, not from the PR.
@@ -120,6 +144,7 @@ jobs:
           FAIL_ON: ${{ inputs.fail-on }}
           CONFIG: ${{ inputs.config }}
           COMMENTS: ${{ inputs.comments }}
+          FULL_REVIEW: ${{ inputs.full-review }}
           SINCE_SHA: ${{ steps.checkpoint.outputs.since }}
           PREVIOUS_STATE: ${{ steps.checkpoint.outputs.state }}
           GITHUB_TOKEN: ${{ github.token }}
@@ -132,6 +157,7 @@ jobs:
           if [ -n "$SINCE_SHA" ] && [ -n "$PREVIOUS_STATE" ]; then
             args+=(--since "$SINCE_SHA" --state-in "$PREVIOUS_STATE")
           fi
+          if [ "$FULL_REVIEW" = "true" ]; then args+=(--full-review); fi
           if [ -n "$FAIL_ON" ]; then args+=(--fail-on "$FAIL_ON"); fi
           if [ "$COMMENTS" = "true" ]; then args+=(--publish-github); fi
           set +e

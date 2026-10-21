@@ -24,6 +24,9 @@ dotnet run --project src/SmartWizz -- --repo ../my-repo --base origin/main
 | `--base <ref>` | Branch/commit the PR merges into (required). Diff is `base...head` (from the merge-base). |
 | `--head <ref>` | PR head, default `HEAD`. |
 | `--since <sha>` | Optional full SHA of the last successfully reviewed commit. Review only changes since it when it is an ancestor of head; otherwise fall back to a full PR review. |
+| `--full-review` | Review the complete PR diff even when `--since` is given. Earlier findings are still re-checked. |
+| `--state-in <path>` | Previous review checkpoint (requires `--since` and `--state-out`). See [Incremental review](#incremental-review). |
+| `--state-out <path>` | Write the review checkpoint after a fully successful run. |
 | `--repo <path>` | Git checkout, default current directory. |
 | `--config <path>` | Config file, default `./smartwizz.json` if present. |
 | `--json <path>` | Also write the JSON report. |
@@ -41,13 +44,27 @@ dotnet run --project src/SmartWizz -- --repo ../my-repo --base origin/main
 
 A failure in any request batch fails the whole run; a partial review is never reported as complete.
 
-## Incremental review (in progress, issue #11)
+## Incremental review
 
-Without `--since`, SmartWizz reviews the full PR diff. With `--since <40-character-SHA>`, it reviews only changes since the last successfully reviewed ancestor commit; rewritten history triggers a full review.
+Without `--since`, SmartWizz reviews the full PR diff. With `--since <40-character-SHA>`, it reviews only the changes since that previously reviewed commit. To track findings across runs, pass `--state-out <path>` on every run, and `--since <sha> --state-in <path>` from the second run on. The checkpoint (version 2) records the reviewed head SHA, a hash of the review configuration, and every finding with its status:
 
-The optional `--state-out <path>` writes a versioned checkpoint after a completed review. To consume one, provide both `--since <sha>` and `--state-in <path>` as well as `--state-out <path>`. The checkpoint SHA must match `--since`. Open findings carry forward and contribute to the `--fail-on` gate; a rewritten history discards the prior checkpoint and triggers a full review.
+- **open**: reported and not yet verified as fixed. Unresolved findings from earlier runs stay in the `--fail-on` gate.
+- **resolved**: a re-check of the *current* code confirmed the fix, or the file no longer exists. A finding is never resolved just because a rerun did not report it again.
+- **regressed**: reported again after it was resolved. It counts toward the gate like an open finding.
 
-**Important limitations:** The reusable GitHub Actions workflow now restores and uploads per-PR checkpoints as Actions artifacts (requires `actions: read` in the reusable workflow permissions). Its restoration currently considers the newest 100 repository artifacts, and falls back to a complete review when no checkpoint is found. Existing findings are conservatively retained, not automatically validated as resolved. Thus fixes can leave the gate blocked until finding-resolution logic is implemented. Only load checkpoints stored by trusted CI, not PR-controlled files. This feature is not ready to act as the sole required PR quality gate.
+On each run, earlier unresolved findings that were not reported again are re-checked if their file changed (after a complete review, all of them are). The re-check sends the model the finding and the current code around it, using a separate prompt (`prompts/revalidate.md`). Only an explicit, explained `resolved` verdict resolves a finding. Missing, contradictory or unknown verdicts keep it open, and malformed output fails the run. Findings in untouched files are carried forward without a model call.
+
+SmartWizz runs a complete review instead of an incremental one when:
+
+- `--full-review` is given (for example a security or release review),
+- the checkpoint is missing, corrupt or from an older version,
+- the review configuration, prompts or ruleset changed,
+- the checkpoint SHA does not match `--since`,
+- `--since` is not in the clone or not an ancestor of the head (force-push or rebase).
+
+Earlier unresolved findings are still re-checked after a complete review, so none are silently dropped. The checkpoint is written only as the last step of a fully successful run. A failed review, re-check or publish never advances the baseline. The console report and the JSON report (`mode`, `modeReason`, `trackedFindings`) show which mode ran and why.
+
+The reusable GitHub Actions workflow stores the checkpoint as a per-PR artifact and restores the newest one. It uses only checkpoints that this repository's own runs stored for the PR's branch, where the storing run reviewed exactly the commit the checkpoint names. Fork PRs therefore always get complete reviews. If checkpoints cannot be read (for example because the caller does not grant `actions: read`), the workflow warns and runs a complete review. Runs for the same PR are serialized by a concurrency group, and a queued run is replaced by a newer push. Set the `full-review` input to force a complete review.
 
 ## Configuration
 
@@ -152,10 +169,12 @@ jobs:
     permissions:
       contents: read
       pull-requests: write                # inline review comments
+      actions: read                       # restore the previous review checkpoint
     uses: mycaravam-crypto/smartwizz/.github/workflows/review.yml@main
     with:
       fail-on: high                       # optional; omit for report-only
       # comments: false                   # job summary + artifact only
+      # full-review: true                # ignore the checkpoint's baseline (security/release review)
       # Internal API on a self-hosted runner:
       # runner: '["self-hosted", "linux"]'
       # endpoint: https://llm.internal.example/v1/chat/completions

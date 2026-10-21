@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="../../prompts/code-review.md" LogicalName="code-review.md" />
+    <EmbeddedResource Include="../../prompts/revalidate.md" LogicalName="revalidate.md" />
   </ItemGroup>
 
 </Project>

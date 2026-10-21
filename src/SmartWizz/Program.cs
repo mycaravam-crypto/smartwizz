@@ -13,11 +13,12 @@ public static class Program
           --base <ref>        Target branch/commit the PR merges into (required), e.g. origin/main
           --head <ref>        PR head (default: HEAD)
           --since <sha>       Review changes since a previous successful review SHA
+          --full-review       Review the complete PR diff even when --since is given
           --repo <path>       Git checkout (default: current directory)
           --config <path>     Config file (default: ./smartwizz.json if present)
           --json <path>       Also write the JSON report to this file
-          --state-in <path>  Load previous review checkpoint (requires --since)
-          --state-out <path> Write review checkpoint after a completed review
+          --state-in <path>   Load previous review checkpoint (requires --since and --state-out)
+          --state-out <path>  Write review checkpoint after a completed review
           --fail-on <sev>     Exit 1 if any finding is at/above low|medium|high|critical
           --publish           Post findings as Azure DevOps PR threads
           --publish-github    Post findings as inline comments of one GitHub PR review
@@ -100,37 +101,22 @@ public static class Program
         RuleCatalog? catalog = guidelines is not null && Path.GetExtension(guidelines).Equals(".json", StringComparison.OrdinalIgnoreCase)
             ? RuleCatalog.Load(guidelines) : null;
         string? legacyStandard = guidelines is not null && catalog is null ? await File.ReadAllTextAsync(guidelines, ct) : null;
-        string systemPrompt = Review.SystemPrompt(LoadPrompt(), legacyStandard);
-        string scopeMaterial = JsonSerializer.Serialize(cfg) + systemPrompt + (catalog?.Sha256 ?? "");
+        string systemPrompt = Review.SystemPrompt(LoadPrompt("code-review.md"), legacyStandard);
+        string revalidationPrompt = LoadPrompt("revalidate.md");
+        string scopeMaterial = JsonSerializer.Serialize(cfg) + systemPrompt + revalidationPrompt + (catalog?.Sha256 ?? "");
         string reviewScope = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(scopeMaterial)));
-        var previous = ReviewCheckpoint.Load(opt.StateIn);
-        if (previous is not null && !string.Equals(previous.ReviewScopeSha256, reviewScope, StringComparison.Ordinal))
-        {
-            Console.Error.WriteLine("warning: review configuration changed; rebuilding the complete PR checkpoint");
-            previous = null;
-        }
-        if (previous is not null && !string.Equals(previous.HeadSha, opt.Since, StringComparison.OrdinalIgnoreCase))
-            throw new SmartWizzException(FailureKind.Configuration, "checkpoint head SHA does not match --since");
-        bool incremental = opt.Since is not null && (opt.StateIn is null || previous is not null)
-            && await GitDiff.IsAncestorAsync(opt.Repo, opt.Since, opt.Head, ct);
-        if (!incremental) previous = null; // A full review must not inherit stale findings from rewritten history.
-        List<FileDiff> files = GitDiff.Parse(await GitDiff.RunIncrementalAsync(opt.Repo, opt.Base!, opt.Head, incremental ? opt.Since : null, cfg.Review.ContextLines, ct));
-
+        ReviewCheckpoint? previous = UsableCheckpoint(ReviewCheckpoint.Load(opt.StateIn, Console.Error), opt.Since, reviewScope);
         // No client-wide timeout: Provider and AzureDevOpsPublisher bound every request with their configured timeout.
         using HttpClient http = new() { Timeout = Timeout.InfiniteTimeSpan };
         Provider provider = new(http, cfg.Provider, Environment.GetEnvironmentVariable("SMARTWIZZ_API_KEY"), log: Console.Error);
-        ReviewResult result = await Review.RunAsync(files, cfg.Review, provider, systemPrompt, ct, catalog);
-
-        ReviewCheckpoint? next = null;
-        if (opt.StateOut is not null)
-        {
-            string headSha = await GitDiff.ResolveShaAsync(opt.Repo, opt.Head, ct);
-            next = ReviewCheckpoint.Merge(headSha, previous, result.Findings, reviewScope);
-        }
+        (ReviewPlan plan, ReviewResult result, ReviewCheckpoint? next) = await IncrementalReview.RunAsync(
+            opt, previous, cfg.Review, provider, new ReviewPrompts(systemPrompt, revalidationPrompt), reviewScope, catalog, Console.Error, ct);
 
         Report.WriteConsole(result, Console.Out);
+        if (next is not null)
+            Report.WriteCheckpoint(next, previous, Console.Out);
         if (opt.JsonPath is not null)
-            await File.WriteAllTextAsync(opt.JsonPath, Report.ToJson(result), ct);
+            await File.WriteAllTextAsync(opt.JsonPath, Report.ToJson(result, plan, next), ct);
 
         if (opt.Publish)
         {
@@ -145,14 +131,27 @@ public static class Program
             Console.WriteLine($"\nPosted {posted} inline comment(s) as a GitHub review; {present} already present.");
         }
 
-        if (opt.StateOut is not null) next!.Save(opt.StateOut);
-        return Review.ExitCode(next?.OpenFindings ?? result.Findings, opt.FailOn);
+        // Last step: a failed review, recheck or publish never advances the baseline.
+        if (next is not null && opt.StateOut is not null) next.Save(opt.StateOut);
+        return Review.ExitCode(next?.UnresolvedFindings ?? result.Findings, opt.FailOn);
     }
 
-    static string LoadPrompt()
+    // A checkpoint from another configuration or another baseline is untrusted: fall back to a complete review.
+    static ReviewCheckpoint? UsableCheckpoint(ReviewCheckpoint? state, string? since, string reviewScope)
     {
-        using Stream stream = typeof(Program).Assembly.GetManifestResourceStream("code-review.md")
-            ?? throw new InvalidOperationException("embedded prompt code-review.md is missing from the build");
+        string? problem = state is null ? null
+            : !string.Equals(state.ReviewScopeSha256, reviewScope, StringComparison.Ordinal) ? "review configuration changed"
+            : !string.Equals(state.HeadSha, since, StringComparison.OrdinalIgnoreCase) ? "checkpoint head SHA does not match --since"
+            : null;
+        if (problem is null) return state;
+        Console.Error.WriteLine($"warning: {problem}; running a complete review");
+        return null;
+    }
+
+    static string LoadPrompt(string name)
+    {
+        using Stream stream = typeof(Program).Assembly.GetManifestResourceStream(name)
+            ?? throw new InvalidOperationException($"embedded prompt {name} is missing from the build");
         using StreamReader reader = new(stream);
         return reader.ReadToEnd();
     }
@@ -163,6 +162,7 @@ public sealed record Options
     public string? Base { get; init; }
     public string Head { get; init; } = "HEAD";
     public string? Since { get; init; }
+    public bool FullReview { get; init; }
     public string Repo { get; init; } = ".";
     public string? ConfigPath { get; init; }
     public string? JsonPath { get; init; }
@@ -184,6 +184,7 @@ public sealed record Options
                 "--base" => o with { Base = Value() },
                 "--head" => o with { Head = Value() },
                 "--since" => o with { Since = Value() },
+                "--full-review" => o with { FullReview = true },
                 "--repo" => o with { Repo = Value() },
                 "--config" => o with { ConfigPath = Value() },
                 "--json" => o with { JsonPath = Value() },
@@ -198,7 +199,7 @@ public sealed record Options
         }
         if (o.StateIn is not null && (o.Since is null || o.StateOut is null))
             throw new SmartWizzException(FailureKind.Usage, "--state-in requires --since and --state-out");
-        if (o.Since is not null && !System.Text.RegularExpressions.Regex.IsMatch(o.Since, "^[0-9a-fA-F]{40}$"))
+        if (o.Since is not null && !ReviewCheckpoint.IsCommitSha(o.Since))
             throw new SmartWizzException(FailureKind.Usage, "--since must be a full 40-character commit SHA");
         if (!o.Help && string.IsNullOrWhiteSpace(o.Base))
             throw new SmartWizzException(FailureKind.Usage, "--base is required");

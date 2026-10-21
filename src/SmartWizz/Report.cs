@@ -14,9 +14,11 @@ public static class Report
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, // file output, not HTML
     };
 
-    public static string ToJson(ReviewResult r) => JsonSerializer.Serialize(new
+    public static string ToJson(ReviewResult r, ReviewPlan? plan = null, ReviewCheckpoint? checkpoint = null) => JsonSerializer.Serialize(new
     {
         version = 1,
+        mode = plan?.Mode.ToString().ToLowerInvariant(),
+        modeReason = plan?.Reason,
         r.ReviewedFiles,
         r.Models,
         r.RulesetVersion,
@@ -28,7 +30,30 @@ public static class Report
         r.Findings,
         r.SkippedFiles,
         r.Rejected,
+        trackedFindings = checkpoint?.Findings,
     }, Json);
+
+    // Lifecycle of findings across runs; this run's new findings are already listed by WriteConsole.
+    public static void WriteCheckpoint(ReviewCheckpoint next, ReviewCheckpoint? previous, TextWriter w)
+    {
+        var wasResolved = (previous?.Findings ?? []).Where(t => !t.IsUnresolved)
+            .Select(t => t.Finding.Fingerprint).ToHashSet(StringComparer.Ordinal);
+        var resolvedNow = next.Findings
+            .Where(t => !t.IsUnresolved && t.LastCheckedSha == next.HeadSha && !wasResolved.Contains(t.Finding.Fingerprint)).ToList();
+        var carried = next.Findings.Where(t => t.IsUnresolved && t.FirstSeenSha != next.HeadSha).ToList();
+        int regressed = next.Findings.Count(t => t.Status == FindingStatus.Regressed);
+
+        w.WriteLine();
+        w.WriteLine($"Tracked findings: {next.UnresolvedFindings.Count} unresolved ({carried.Count} from earlier reviews, " +
+                    $"{regressed} regressed), {resolvedNow.Count} resolved by this change.");
+        foreach (TrackedFinding t in carried)
+            w.WriteLine($"  [{Label(t)}] {t.Finding.FilePath}:{t.Finding.StartLine}  {t.Finding.Title}  (fp {t.Finding.Fingerprint})");
+        foreach (TrackedFinding t in resolvedNow)
+            w.WriteLine($"  [RESOLVED] {t.Finding.FilePath}:{t.Finding.StartLine}  {t.Finding.Title}: {t.Resolution}  (fp {t.Finding.Fingerprint})");
+    }
+
+    static string Label(TrackedFinding t) =>
+        $"{t.Finding.Severity.ToString().ToUpperInvariant()}{(t.Status == FindingStatus.Regressed ? ", REGRESSED" : "")}";
 
     public static void WriteConsole(ReviewResult r, TextWriter w)
     {
