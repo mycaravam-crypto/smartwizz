@@ -46,7 +46,7 @@ Without `--since`, SmartWizz reviews the full PR diff. With `--since <40-charact
 
 The optional `--state-out <path>` writes a versioned checkpoint after a completed review. To consume one, provide both `--since <sha>` and `--state-in <path>` as well as `--state-out <path>`. The checkpoint SHA must match `--since`. Open findings carry forward and contribute to the `--fail-on` gate; a rewritten history discards the prior checkpoint and triggers a full review.
 
-**Important limitations:** The reusable GitHub Actions workflow does not yet persist and restore checkpoints. Existing findings are conservatively retained, not automatically validated as resolved. Thus fixes can leave the gate blocked until finding-resolution logic is implemented. Only load checkpoints stored by trusted CI, not PR-controlled files. This feature is not ready to act as the sole required PR quality gate.
+**Important limitations:** The reusable GitHub Actions workflow now restores and uploads per-PR checkpoints as Actions artifacts (requires `actions: read` in the reusable workflow permissions). Its restoration currently considers the newest 100 repository artifacts, and falls back to a complete review when no checkpoint is found. Existing findings are conservatively retained, not automatically validated as resolved. Thus fixes can leave the gate blocked until finding-resolution logic is implemented. Only load checkpoints stored by trusted CI, not PR-controlled files. This feature is not ready to act as the sole required PR quality gate.
 
 ## Configuration
 
