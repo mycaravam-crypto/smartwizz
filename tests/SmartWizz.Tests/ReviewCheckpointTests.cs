@@ -27,6 +27,13 @@ public class ReviewCheckpointTests
     }
 
     [Fact]
+    public void Checkpoint_records_review_scope()
+    {
+        var state = ReviewCheckpoint.Merge(new string('a', 40), null, [Issue("x")], new string('b', 64));
+        Assert.Equal(new string('b', 64), state.ReviewScopeSha256);
+    }
+
+    [Fact]
     public void Checkpoint_roundtrips_and_rejects_invalid_version()
     {
         string path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json");
