@@ -9,6 +9,7 @@ public static class Program
 
           --base <ref>        Target branch/commit the PR merges into (required), e.g. origin/main
           --head <ref>        PR head (default: HEAD)
+          --since <sha>       Review changes since a previous successful review SHA
           --repo <path>       Git checkout (default: current directory)
           --config <path>     Config file (default: ./smartwizz.json if present)
           --json <path>       Also write the JSON report to this file
@@ -134,7 +135,8 @@ public static class Program
 public sealed record Options
 {
     public string? Base { get; init; }
-    public string Head { get; init; } = "HEAD";\n    public string? Since { get; init; }
+    public string Head { get; init; } = "HEAD";
+    public string? Since { get; init; }
     public string Repo { get; init; } = ".";
     public string? ConfigPath { get; init; }
     public string? JsonPath { get; init; }
@@ -152,7 +154,8 @@ public sealed record Options
             o = args[i] switch
             {
                 "--base" => o with { Base = Value() },
-                "--head" => o with { Head = Value() },\n                "--since" => o with { Since = Value() },
+                "--head" => o with { Head = Value() },
+                "--since" => o with { Since = Value() },
                 "--repo" => o with { Repo = Value() },
                 "--config" => o with { ConfigPath = Value() },
                 "--json" => o with { JsonPath = Value() },
@@ -163,7 +166,9 @@ public sealed record Options
                 _ => throw new SmartWizzException(FailureKind.Usage, $"unknown argument: {args[i]}"),
             };
         }
-        if (o.Since is not null && !System.Text.RegularExpressions.Regex.IsMatch(o.Since, "^[0-9a-fA-F]{40}$"))\n            throw new SmartWizzException(FailureKind.Usage, "--since must be a full 40-character commit SHA");\n        if (!o.Help && string.IsNullOrWhiteSpace(o.Base))
+        if (o.Since is not null && !System.Text.RegularExpressions.Regex.IsMatch(o.Since, "^[0-9a-fA-F]{40}$"))
+            throw new SmartWizzException(FailureKind.Usage, "--since must be a full 40-character commit SHA");
+        if (!o.Help && string.IsNullOrWhiteSpace(o.Base))
             throw new SmartWizzException(FailureKind.Usage, "--base is required");
         return o;
     }
