@@ -90,7 +90,7 @@ public static class Program
         var cfg = Config.Load(opt.ConfigPath, Environment.GetEnvironmentVariable);
         if (Uri.TryCreate(cfg.Provider.Endpoint, UriKind.Absolute, out Uri? endpoint) && endpoint.Scheme == Uri.UriSchemeHttp && !endpoint.IsLoopback)
             Console.Error.WriteLine("warning: provider endpoint uses plain HTTP; code and API key are sent unencrypted");
-        List<FileDiff> files = GitDiff.Parse(await GitDiff.RunAsync(opt.Repo, opt.Base!, opt.Head, cfg.Review.ContextLines, ct));
+        List<FileDiff> files = GitDiff.Parse(await GitDiff.RunIncrementalAsync(opt.Repo, opt.Base!, opt.Head, opt.Since, cfg.Review.ContextLines, ct));
 
         // No client-wide timeout: Provider and AzureDevOpsPublisher bound every request with their configured timeout.
         using HttpClient http = new() { Timeout = Timeout.InfiniteTimeSpan };
@@ -134,7 +134,7 @@ public static class Program
 public sealed record Options
 {
     public string? Base { get; init; }
-    public string Head { get; init; } = "HEAD";
+    public string Head { get; init; } = "HEAD";\n    public string? Since { get; init; }
     public string Repo { get; init; } = ".";
     public string? ConfigPath { get; init; }
     public string? JsonPath { get; init; }
@@ -152,7 +152,7 @@ public sealed record Options
             o = args[i] switch
             {
                 "--base" => o with { Base = Value() },
-                "--head" => o with { Head = Value() },
+                "--head" => o with { Head = Value() },\n                "--since" => o with { Since = Value() },
                 "--repo" => o with { Repo = Value() },
                 "--config" => o with { ConfigPath = Value() },
                 "--json" => o with { JsonPath = Value() },
@@ -163,7 +163,7 @@ public sealed record Options
                 _ => throw new SmartWizzException(FailureKind.Usage, $"unknown argument: {args[i]}"),
             };
         }
-        if (!o.Help && string.IsNullOrWhiteSpace(o.Base))
+        if (o.Since is not null && !System.Text.RegularExpressions.Regex.IsMatch(o.Since, "^[0-9a-fA-F]{40}$"))\n            throw new SmartWizzException(FailureKind.Usage, "--since must be a full 40-character commit SHA");\n        if (!o.Help && string.IsNullOrWhiteSpace(o.Base))
             throw new SmartWizzException(FailureKind.Usage, "--base is required");
         return o;
     }
