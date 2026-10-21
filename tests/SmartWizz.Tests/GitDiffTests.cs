@@ -95,6 +95,7 @@ public class GitDiffTests
         List<FileDiff> files = GitDiff.Parse(diff);
 
         Assert.Equal(["new.cs", "new name.cs", "dir/moved.cs", "run.sh"], files.Select(f => f.Path));
+        Assert.Equal([null, "old name.cs", "moved.cs", null], files.Select(f => f.OldPath));
         Assert.Equal([1, 2], files[0].AddedLines.Order());
         Assert.Equal([6], files[1].AddedLines);
         Assert.Equal([5, 6], files[1].NewLines.Keys.Order());

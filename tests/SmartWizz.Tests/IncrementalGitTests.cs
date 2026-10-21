@@ -2,9 +2,10 @@ using System.Diagnostics;
 
 namespace SmartWizz.Tests;
 
+[Collection("process-env")] // runs real git: must not overlap GitCancellationTests' fake git on PATH
 public class IncrementalGitTests
 {
-    static void Git(string path, params string[] args)
+    internal static void Git(string path, params string[] args)
     {
         var psi = new ProcessStartInfo("git") { RedirectStandardError = true, RedirectStandardOutput = true };
         psi.ArgumentList.Add("-C");
@@ -17,7 +18,7 @@ public class IncrementalGitTests
         Assert.True(p.ExitCode == 0, error);
     }
 
-    static string Sha(string path)
+    internal static string Sha(string path)
     {
         var psi = new ProcessStartInfo("git") { RedirectStandardOutput = true };
         psi.ArgumentList.Add("-C");

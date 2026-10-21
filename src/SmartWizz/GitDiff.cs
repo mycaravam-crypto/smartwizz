@@ -8,6 +8,8 @@ namespace SmartWizz;
 public sealed class FileDiff
 {
     public required string Path { get; set; }
+    // Previous path when git detected a rename.
+    public string? OldPath { get; set; }
     public bool IsBinary { get; set; }
     public bool IsDeleted { get; set; }
     // New-side line number -> line text, for every line visible in the diff (context + added).
@@ -112,6 +114,44 @@ public static partial class GitDiff
         return true;
     }
 
+    // A force-push usually leaves the previously reviewed commit absent from a fresh clone.
+    public static async Task<bool> CommitExistsAsync(string repo, string sha, CancellationToken ct) =>
+        (await RunGitAsync(["-C", repo, "cat-file", "-e", $"{sha}^{{commit}}"], ct)).ExitCode == 0;
+
+    // File content at a commit, or null when the path does not exist there. Reads objects only: no checkout, no filters.
+    public static async Task<string?> ReadFileAsync(string repo, string commitSha, string path, CancellationToken ct)
+    {
+        (int listed, string entries, string listError) = await RunGitAsync(
+            ["--literal-pathspecs", "-C", repo, "ls-tree", "-z", "--full-tree", "--name-only", commitSha, "--", path], ct);
+        if (listed != 0)
+            throw new SmartWizzException(FailureKind.Git, $"git ls-tree failed ({listed}): {listError.Trim()}");
+        if (!entries.Split('\0').Contains(path, StringComparer.Ordinal))
+            return null;
+        (int read, string content, string readError) = await RunGitAsync(["-C", repo, "cat-file", "blob", $"{commitSha}:{path}"], ct);
+        if (read != 0)
+            throw new SmartWizzException(FailureKind.Git, $"git cat-file failed ({read}): {readError.Trim()}");
+        return content;
+    }
+
+    static async Task<(int ExitCode, string Output, string Error)> RunGitAsync(IEnumerable<string> args, CancellationToken ct)
+    {
+        var psi = new ProcessStartInfo("git")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+        };
+        foreach (string arg in args)
+            psi.ArgumentList.Add(arg);
+        using Process process = Process.Start(psi) ?? throw new SmartWizzException(FailureKind.Git, "failed to start git");
+        using CancellationTokenRegistration kill = ct.Register(() => KillQuietly(process));
+        Task<string> error = process.StandardError.ReadToEndAsync(ct);
+        string output = await process.StandardOutput.ReadToEndAsync(ct);
+        await process.WaitForExitAsync(ct);
+        ct.ThrowIfCancellationRequested();
+        return (process.ExitCode, output, await error);
+    }
+
     [GeneratedRegex(@"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")]
     private static partial Regex HunkHeader();
 
@@ -143,6 +183,7 @@ public static partial class GitDiff
                     if (p == "/dev/null") cur.IsDeleted = true;
                     else cur.Path = p.StartsWith("b/") ? p[2..] : p;
                 }
+                else if (line.StartsWith("rename from ")) cur.OldPath = Unquote(line["rename from ".Length..]);
                 else if (line.StartsWith("rename to ")) cur.Path = Unquote(line["rename to ".Length..]);
                 else if (line.StartsWith("deleted file mode")) cur.IsDeleted = true;
                 else if (line.StartsWith("Binary files ")) cur.IsBinary = true;
