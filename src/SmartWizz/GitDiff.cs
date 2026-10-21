@@ -86,6 +86,13 @@ public static partial class GitDiff
         if (!System.Text.RegularExpressions.Regex.IsMatch(sinceSha, "^[0-9a-fA-F]{40}$"))
             throw new SmartWizzException(FailureKind.Usage, "--since must be a full 40-character commit SHA");
 
+        return await IsAncestorAsync(repo, sinceSha, headRef, ct)
+            ? await RunAsync(repo, sinceSha, headRef, contextLines, ct)
+            : await RunAsync(repo, baseRef, headRef, contextLines, ct);
+    }
+
+    public static async Task<bool> IsAncestorAsync(string repo, string sinceSha, string headRef, CancellationToken ct)
+    {
         var psi = new ProcessStartInfo("git")
         {
             RedirectStandardOutput = true,
@@ -99,10 +106,10 @@ public static partial class GitDiff
         await process.WaitForExitAsync(ct);
         ct.ThrowIfCancellationRequested();
         if (process.ExitCode == 1)
-            return await RunAsync(repo, baseRef, headRef, contextLines, ct);
+            return false;
         if (process.ExitCode != 0)
             throw new SmartWizzException(FailureKind.Git, $"git merge-base failed ({process.ExitCode}): {stderr.Trim()}");
-        return await RunAsync(repo, sinceSha, headRef, contextLines, ct);
+        return true;
     }
 
     [GeneratedRegex(@"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")]
