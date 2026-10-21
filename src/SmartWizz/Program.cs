@@ -93,7 +93,12 @@ public static class Program
         var cfg = Config.Load(opt.ConfigPath, Environment.GetEnvironmentVariable);
         if (Uri.TryCreate(cfg.Provider.Endpoint, UriKind.Absolute, out Uri? endpoint) && endpoint.Scheme == Uri.UriSchemeHttp && !endpoint.IsLoopback)
             Console.Error.WriteLine("warning: provider endpoint uses plain HTTP; code and API key are sent unencrypted");
-        List<FileDiff> files = GitDiff.Parse(await GitDiff.RunIncrementalAsync(opt.Repo, opt.Base!, opt.Head, opt.Since, cfg.Review.ContextLines, ct));
+        ReviewCheckpoint? previous = ReviewCheckpoint.Load(opt.StateIn);
+        if (previous is not null && !string.Equals(previous.HeadSha, opt.Since, StringComparison.OrdinalIgnoreCase))
+            throw new SmartWizzException(FailureKind.Configuration, "checkpoint head SHA does not match --since");
+        bool incremental = opt.Since is not null && await GitDiff.IsAncestorAsync(opt.Repo, opt.Since, opt.Head, ct);
+        if (!incremental) previous = null; // A full review must not inherit stale findings from rewritten history.
+        List<FileDiff> files = GitDiff.Parse(await GitDiff.RunIncrementalAsync(opt.Repo, opt.Base!, opt.Head, incremental ? opt.Since : null, cfg.Review.ContextLines, ct));
 
         // No client-wide timeout: Provider and AzureDevOpsPublisher bound every request with their configured timeout.
         using HttpClient http = new() { Timeout = Timeout.InfiniteTimeSpan };
@@ -105,7 +110,6 @@ public static class Program
         ReviewResult result = await Review.RunAsync(files, cfg.Review, provider,
             Review.SystemPrompt(LoadPrompt(), legacyStandard), ct, catalog);
 
-        ReviewCheckpoint? previous = ReviewCheckpoint.Load(opt.StateIn);
         ReviewCheckpoint? next = null;
         if (opt.StateOut is not null)
         {
