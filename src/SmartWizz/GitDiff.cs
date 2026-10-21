@@ -49,6 +49,22 @@ public static partial class GitDiff
         return stdout;
     }
 
+    public static async Task<string> ResolveShaAsync(string repo, string headRef, CancellationToken ct)
+    {
+        var psi = new ProcessStartInfo("git") { RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (string arg in new[] { "-C", repo, "rev-parse", "--verify", $"{headRef}^{{commit}}" })
+            psi.ArgumentList.Add(arg);
+        using Process process = Process.Start(psi) ?? throw new SmartWizzException(FailureKind.Git, "failed to start git");
+        using CancellationTokenRegistration kill = ct.Register(() => KillQuietly(process));
+        Task<string> error = process.StandardError.ReadToEndAsync(ct);
+        string sha = (await process.StandardOutput.ReadToEndAsync(ct)).Trim();
+        await process.WaitForExitAsync(ct);
+        ct.ThrowIfCancellationRequested();
+        if (process.ExitCode != 0 || !Regex.IsMatch(sha, "^[0-9a-fA-F]{40}$"))
+            throw new SmartWizzException(FailureKind.Git, $"failed to resolve PR head SHA: {(await error).Trim()}");
+        return sha;
+    }
+
     static void KillQuietly(Process process)
     {
         try
@@ -59,6 +75,41 @@ public static partial class GitDiff
         {
             // Already exited: nothing to stop.
         }
+    }
+
+    // Incremental reviews require an ancestor baseline. A rewritten history falls back to the full PR diff.
+    public static async Task<string> RunIncrementalAsync(string repo, string baseRef, string headRef,
+        string? sinceSha, int contextLines, CancellationToken ct)
+    {
+        if (sinceSha is null)
+            return await RunAsync(repo, baseRef, headRef, contextLines, ct);
+        if (!System.Text.RegularExpressions.Regex.IsMatch(sinceSha, "^[0-9a-fA-F]{40}$"))
+            throw new SmartWizzException(FailureKind.Usage, "--since must be a full 40-character commit SHA");
+
+        return await IsAncestorAsync(repo, sinceSha, headRef, ct)
+            ? await RunAsync(repo, sinceSha, headRef, contextLines, ct)
+            : await RunAsync(repo, baseRef, headRef, contextLines, ct);
+    }
+
+    public static async Task<bool> IsAncestorAsync(string repo, string sinceSha, string headRef, CancellationToken ct)
+    {
+        var psi = new ProcessStartInfo("git")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        foreach (string a in new[] { "-C", repo, "merge-base", "--is-ancestor", sinceSha, headRef })
+            psi.ArgumentList.Add(a);
+        using Process process = Process.Start(psi) ?? throw new SmartWizzException(FailureKind.Git, "failed to start git");
+        using CancellationTokenRegistration kill = ct.Register(() => KillQuietly(process));
+        string stderr = await process.StandardError.ReadToEndAsync(ct);
+        await process.WaitForExitAsync(ct);
+        ct.ThrowIfCancellationRequested();
+        if (process.ExitCode == 1)
+            return false;
+        if (process.ExitCode != 0)
+            throw new SmartWizzException(FailureKind.Git, $"git merge-base failed ({process.ExitCode}): {stderr.Trim()}");
+        return true;
     }
 
     [GeneratedRegex(@"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")]

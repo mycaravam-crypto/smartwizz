@@ -57,6 +57,10 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      actions: read # restore the last successful checkpoint artifact
+    concurrency:
+      group: smartwizz-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     timeout-minutes: 20
     steps:
       - name: Check out pull request
@@ -78,9 +82,34 @@ jobs:
         with:
           global-json-file: smartwizz/global.json
 
+      - name: Restore previous review checkpoint
+        id: checkpoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          name="smartwizz-checkpoint-pr-$PR_NUMBER"
+          # The artifact list is newest-first. Missing state triggers the full initial review.
+          id="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+            --jq 'first(.artifacts[] | select(.expired == false and .name == "'"$name"'") | .id) // empty')"
+          if [ -n "$id" ]; then
+            mkdir -p checkpoint-restore
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > checkpoint.zip
+            unzip -p checkpoint.zip review-checkpoint.json > checkpoint-restore/review-checkpoint.json
+            sha="$(jq -r '.headSha // empty' checkpoint-restore/review-checkpoint.json)"
+            if [[ "$sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+              echo "since=$sha" >> "$GITHUB_OUTPUT"
+              echo "state=../checkpoint-restore/review-checkpoint.json" >> "$GITHUB_OUTPUT"
+            else
+              echo "::warning::Invalid checkpoint SHA; using full PR review"
+            fi
+          fi
+
       # Inputs go through env, never inline into the script, to rule out script injection.
       # Runs from the SmartWizz checkout: config, standard and any .env come from there, not from the PR.
       - name: Review
+        id: review
         working-directory: smartwizz
         env:
           SMARTWIZZ_API_KEY: ${{ secrets.SMARTWIZZ_API_KEY }}
@@ -91,15 +120,37 @@ jobs:
           FAIL_ON: ${{ inputs.fail-on }}
           CONFIG: ${{ inputs.config }}
           COMMENTS: ${{ inputs.comments }}
+          SINCE_SHA: ${{ steps.checkpoint.outputs.since }}
+          PREVIOUS_STATE: ${{ steps.checkpoint.outputs.state }}
           GITHUB_TOKEN: ${{ github.token }}
           SMARTWIZZ_GITHUB_PR: ${{ github.event.pull_request.number }}
           SMARTWIZZ_GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           args=(--repo ../pr --base "origin/$BASE_REF" --head "$HEAD_SHA" --config "$CONFIG" --json ../smartwizz-report.json)
+          args+=(--state-out ../review-checkpoint.json)
+          if [ -n "$SINCE_SHA" ] && [ -n "$PREVIOUS_STATE" ]; then
+            args+=(--since "$SINCE_SHA" --state-in "$PREVIOUS_STATE")
+          fi
           if [ -n "$FAIL_ON" ]; then args+=(--fail-on "$FAIL_ON"); fi
           if [ "$COMMENTS" = "true" ]; then args+=(--publish-github); fi
+          set +e
           dotnet run --project src/SmartWizz -c Release -- "${args[@]}" | tee ../smartwizz-report.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -le 1 ] && [ -s ../review-checkpoint.json ]; then
+            echo "checkpoint_ready=true" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$status"
+
+      - name: Store successful analysis checkpoint
+        if: always() && steps.review.outputs.checkpoint_ready == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: smartwizz-checkpoint-pr-${{ github.event.pull_request.number }}
+          path: review-checkpoint.json
+          retention-days: 30
+          if-no-files-found: error
 
       # Indented code block, not a fence: model text cannot break out of it into rendered markdown.
       - name: Job summary
