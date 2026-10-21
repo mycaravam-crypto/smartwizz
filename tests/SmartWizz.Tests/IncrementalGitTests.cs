@@ -44,6 +44,7 @@ public class IncrementalGitTests
             File.WriteAllText(Path.Combine(dir, "a.cs"), "original\n");
             Git(dir, "add", ".");
             Git(dir, "commit", "-m", "base");
+            string baseSha = Sha(dir);
             Git(dir, "checkout", "-b", "feature");
             File.WriteAllText(Path.Combine(dir, "a.cs"), "changed\n");
             Git(dir, "add", ".");
@@ -68,8 +69,8 @@ public class IncrementalGitTests
             Git(dir, "commit", "-m", "rewrite");
             string rewritten = Sha(dir);
             Assert.False(await GitDiff.IsAncestorAsync(dir, reviewed, rewritten, default));
-            string fallback = await GitDiff.RunIncrementalAsync(dir, "main", rewritten, reviewed, 3, default);
-            Assert.Equal(await GitDiff.RunAsync(dir, "main", rewritten, 3, default), fallback);
+            string fallback = await GitDiff.RunIncrementalAsync(dir, baseSha, rewritten, reviewed, 3, default);
+            Assert.Equal(await GitDiff.RunAsync(dir, baseSha, rewritten, 3, default), fallback);
         }
         finally { Directory.Delete(dir, recursive: true); }
     }
