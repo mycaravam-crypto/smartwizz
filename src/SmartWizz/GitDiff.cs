@@ -49,6 +49,22 @@ public static partial class GitDiff
         return stdout;
     }
 
+    public static async Task<string> ResolveShaAsync(string repo, string headRef, CancellationToken ct)
+    {
+        var psi = new ProcessStartInfo("git") { RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (string arg in new[] { "-C", repo, "rev-parse", "--verify", $"{headRef}^{{commit}}" })
+            psi.ArgumentList.Add(arg);
+        using Process process = Process.Start(psi) ?? throw new SmartWizzException(FailureKind.Git, "failed to start git");
+        using CancellationTokenRegistration kill = ct.Register(() => KillQuietly(process));
+        Task<string> error = process.StandardError.ReadToEndAsync(ct);
+        string sha = (await process.StandardOutput.ReadToEndAsync(ct)).Trim();
+        await process.WaitForExitAsync(ct);
+        ct.ThrowIfCancellationRequested();
+        if (process.ExitCode != 0 || !Regex.IsMatch(sha, "^[0-9a-fA-F]{40}$"))
+            throw new SmartWizzException(FailureKind.Git, $"failed to resolve PR head SHA: {(await error).Trim()}");
+        return sha;
+    }
+
     static void KillQuietly(Process process)
     {
         try
