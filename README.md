@@ -22,7 +22,8 @@ dotnet run --project src/SmartWizz -- --repo ../my-repo --base origin/main
 | Option | Meaning |
 |---|---|
 | `--base <ref>` | Branch/commit the PR merges into (required). Diff is `base...head` (from the merge-base). |
-| `--head <ref>` | PR head, default `HEAD`. |\n| `--since <sha>` | Optional full SHA of the last successfully reviewed commit. Review only changes since it when it is an ancestor of head; otherwise fall back to a full PR review. |
+| `--head <ref>` | PR head, default `HEAD`. |
+| `--since <sha>` | Optional full SHA of the last successfully reviewed commit. Review only changes since it when it is an ancestor of head; otherwise fall back to a full PR review. |
 | `--repo <path>` | Git checkout, default current directory. |
 | `--config <path>` | Config file, default `./smartwizz.json` if present. |
 | `--json <path>` | Also write the JSON report. |
