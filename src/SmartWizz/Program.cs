@@ -101,9 +101,9 @@ public static class Program
             ? RuleCatalog.Load(guidelines) : null;
         string? legacyStandard = guidelines is not null && catalog is null ? await File.ReadAllTextAsync(guidelines, ct) : null;
         string systemPrompt = Review.SystemPrompt(LoadPrompt(), legacyStandard);
-        var scopeMaterial = JsonSerializer.Serialize(cfg) + systemPrompt + (catalog?.Sha256 ?? "");
+        string scopeMaterial = JsonSerializer.Serialize(cfg) + systemPrompt + (catalog?.Sha256 ?? "");
         string reviewScope = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(scopeMaterial)));
-        ReviewCheckpoint? previous = ReviewCheckpoint.Load(opt.StateIn);
+        var previous = ReviewCheckpoint.Load(opt.StateIn);
         if (previous is not null && !string.Equals(previous.ReviewScopeSha256, reviewScope, StringComparison.Ordinal))
         {
             Console.Error.WriteLine("warning: review configuration changed; rebuilding the complete PR checkpoint");

@@ -29,7 +29,7 @@ public class ReviewCheckpointTests
     [Fact]
     public void Checkpoint_records_review_scope()
     {
-        ReviewCheckpoint state = ReviewCheckpoint.Merge(new string('a', 40), null, [Issue("x")], new string('b', 64));
+        var state = ReviewCheckpoint.Merge(new string('a', 40), null, [Issue("x")], new string('b', 64));
         Assert.Equal(new string('b', 64), state.ReviewScopeSha256);
     }
 
@@ -39,9 +39,9 @@ public class ReviewCheckpointTests
         string path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json");
         try
         {
-            ReviewCheckpoint state = ReviewCheckpoint.Merge(new string('a', 40), null, [Issue("persistent")]);
+            var state = ReviewCheckpoint.Merge(new string('a', 40), null, [Issue("persistent")]);
             state.Save(path);
-            var restored = ReviewCheckpoint.Load(path)!;
+            ReviewCheckpoint restored = ReviewCheckpoint.Load(path)!;
             Assert.Equal(state.HeadSha, restored.HeadSha);
             Assert.Equal("persistent", Assert.Single(restored.OpenFindings).Fingerprint);
             File.WriteAllText(path, """{"version":99,"headSha":"bad","openFindings":[]}""");
