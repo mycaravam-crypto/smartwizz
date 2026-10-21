@@ -92,7 +92,7 @@ jobs:
           name="smartwizz-checkpoint-pr-$PR_NUMBER"
           # The artifact list is newest-first. Missing state triggers the full initial review.
           id="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
-            --jq '.artifacts[] | select(.expired == false and .name == "'"$name"'") | .id' | head -n 1)"
+            --jq 'first(.artifacts[] | select(.expired == false and .name == "'"$name"'") | .id) // empty')"
           if [ -n "$id" ]; then
             mkdir -p checkpoint-restore
             gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > checkpoint.zip
