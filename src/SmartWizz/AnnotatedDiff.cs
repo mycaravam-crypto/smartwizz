@@ -36,7 +36,7 @@ public static class AnnotatedDiff
             if (!inHunk || match.Success || line.Length == 0) continue;
             if (line[0] is '+' or ' ')
             {
-                if (line[0] == '+' && path is not null && grouped.TryGetValue((path, newLine), out var matched))
+                if (line[0] == '+' && path is not null && grouped.TryGetValue((path, newLine), out List<Finding>? matched))
                     foreach (Finding finding in matched)
                     {
                         output.Append("# REVIEW [").Append(finding.Severity.ToString().ToUpperInvariant())
