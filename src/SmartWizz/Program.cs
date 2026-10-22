@@ -17,6 +17,7 @@ public static class Program
           --repo <path>       Git checkout (default: current directory)
           --config <path>     Config file (default: ./smartwizz.json if present)
           --json <path>       Also write the JSON report to this file
+          --annotated-diff <path>  Write review findings inline with the unified PR diff
           --state-in <path>   Load previous review checkpoint (requires --since and --state-out)
           --state-out <path>  Write review checkpoint after a completed review
           --fail-on <sev>     Exit 1 if any finding is at/above low|medium|high|critical
@@ -117,6 +118,11 @@ public static class Program
             Report.WriteCheckpoint(next, previous, Console.Out);
         if (opt.JsonPath is not null)
             await File.WriteAllTextAsync(opt.JsonPath, Report.ToJson(result, plan, next), ct);
+        if (opt.AnnotatedDiffPath is not null)
+        {
+            string diff = await GitDiff.RunAsync(opt.Repo, opt.Base!, opt.Head, cfg.Review.ContextLines, ct);
+            await File.WriteAllTextAsync(opt.AnnotatedDiffPath, AnnotatedDiff.Render(diff, result.Findings), ct);
+        }
 
         if (opt.Publish)
         {
@@ -166,6 +172,7 @@ public sealed record Options
     public string Repo { get; init; } = ".";
     public string? ConfigPath { get; init; }
     public string? JsonPath { get; init; }
+    public string? AnnotatedDiffPath { get; init; }
     public string? StateIn { get; init; }
     public string? StateOut { get; init; }
     public Severity? FailOn { get; init; }
@@ -188,6 +195,7 @@ public sealed record Options
                 "--repo" => o with { Repo = Value() },
                 "--config" => o with { ConfigPath = Value() },
                 "--json" => o with { JsonPath = Value() },
+                "--annotated-diff" => o with { AnnotatedDiffPath = Value() },
                 "--state-in" => o with { StateIn = Value() },
                 "--state-out" => o with { StateOut = Value() },
                 "--fail-on" => o with { FailOn = Review.ParseSeverity(Value()) ?? throw new SmartWizzException(FailureKind.Usage, $"invalid severity: {args[i]}") },
