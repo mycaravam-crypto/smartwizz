@@ -99,7 +99,7 @@ public static class Program
         var cfg = Config.Load(opt.ConfigPath, Environment.GetEnvironmentVariable);
         if (opt.PrId is { } prId)
         {
-            var resolved = await AdoPrResolver.ResolveAsync(opt.Repo, prId, ct);
+            AdoPrResolver.Resolved resolved = await AdoPrResolver.ResolveAsync(opt.Repo, prId, ct);
             opt = opt with { Base = resolved.Base, Head = resolved.Head };
             if (cfg.AzureDevOps.RepositoryId is { } existing &&
                 !string.Equals(existing, resolved.RepositoryId, StringComparison.OrdinalIgnoreCase))
