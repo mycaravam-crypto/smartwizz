@@ -15,7 +15,7 @@ public static class AdoPrResolver
         try
         {
             using var doc = JsonDocument.Parse(json);
-            var pr = doc.RootElement.GetProperty("pullRequest");
+            JsonElement pr = doc.RootElement.GetProperty("pullRequest");
             int id = pr.GetProperty("pullRequestId").GetInt32();
             if (id != requestedId) throw new SmartWizzException(FailureKind.Git, "ado returned a different pull request");
             string source = pr.GetProperty("lastMergeSourceCommit").GetProperty("commitId").GetString() ?? "";
@@ -36,7 +36,7 @@ public static class AdoPrResolver
     public static async Task<Resolved> ResolveAsync(string checkout, int pr, CancellationToken ct)
     {
         string context = await RunAsync(checkout, ["pr", "context", pr.ToString(System.Globalization.CultureInfo.InvariantCulture)], ct);
-        var resolved = ParseContext(context, pr);
+        Resolved resolved = ParseContext(context, pr);
         // The ado diff command verifies the local repository and fetches both PR branches.
         // Its output is not printed; SmartWizz computes its own diff with the exact commit IDs.
         await RunAsync(checkout, ["pr", "diff", pr.ToString(System.Globalization.CultureInfo.InvariantCulture)], ct);
@@ -54,8 +54,8 @@ public static class AdoPrResolver
             StandardErrorEncoding = Encoding.UTF8,
         };
         foreach (string arg in args) psi.ArgumentList.Add(arg);
-        using var process = Process.Start(psi) ?? throw new SmartWizzException(FailureKind.Git, "failed to start ado-devops CLI");
-        using var reg = ct.Register(() => { try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } });
+        using Process process = Process.Start(psi) ?? throw new SmartWizzException(FailureKind.Git, "failed to start ado-devops CLI");
+        using CancellationTokenRegistration reg = ct.Register(() => { try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } });
         Task<string> error = process.StandardError.ReadToEndAsync(ct);
         string output = await process.StandardOutput.ReadToEndAsync(ct);
         await process.WaitForExitAsync(ct);
