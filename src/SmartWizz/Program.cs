@@ -8,9 +8,10 @@ namespace SmartWizz;
 public static class Program
 {
     const string Usage = """
-        Usage: smartwizz --base <ref> [options]
+        Usage: smartwizz (--base <ref> | --pr <id>) [options]
 
-          --base <ref>        Target branch/commit the PR merges into (required), e.g. origin/main
+          --base <ref>        Target branch/commit the PR merges into, e.g. origin/main
+          --pr <id>           Resolve Azure DevOps PR via ado-devops CLI (read-only)
           --head <ref>        PR head (default: HEAD)
           --since <sha>       Review changes since a previous successful review SHA
           --full-review       Review the complete PR diff even when --since is given
@@ -96,6 +97,19 @@ public static class Program
     {
         Config.LoadDotEnv(".env");
         var cfg = Config.Load(opt.ConfigPath, Environment.GetEnvironmentVariable);
+        if (opt.PrId is { } prId)
+        {
+            var resolved = await AdoPrResolver.ResolveAsync(opt.Repo, prId, ct);
+            opt = opt with { Base = resolved.Base, Head = resolved.Head };
+            if (cfg.AzureDevOps.RepositoryId is { } existing &&
+                !string.Equals(existing, resolved.RepositoryId, StringComparison.OrdinalIgnoreCase))
+                throw new SmartWizzException(FailureKind.Configuration, "configured Azure DevOps repository differs from the selected PR");
+            if (cfg.AzureDevOps.PullRequestId is { } previousPr && previousPr != prId)
+                throw new SmartWizzException(FailureKind.Configuration, "configured Azure DevOps PR ID differs from --pr");
+            cfg.AzureDevOps.PullRequestId = prId;
+            cfg.AzureDevOps.RepositoryId = resolved.RepositoryId;
+            Console.Error.WriteLine($"Azure DevOps PR #{prId}: {resolved.TargetBranch}, head {resolved.Head[..12]}");
+        }
         if (Uri.TryCreate(cfg.Provider.Endpoint, UriKind.Absolute, out Uri? endpoint) && endpoint.Scheme == Uri.UriSchemeHttp && !endpoint.IsLoopback)
             Console.Error.WriteLine("warning: provider endpoint uses plain HTTP; code and API key are sent unencrypted");
         string? guidelines = cfg.Review.Guidelines;
@@ -166,6 +180,7 @@ public static class Program
 public sealed record Options
 {
     public string? Base { get; init; }
+    public int? PrId { get; init; }
     public string Head { get; init; } = "HEAD";
     public string? Since { get; init; }
     public bool FullReview { get; init; }
@@ -189,6 +204,7 @@ public sealed record Options
             o = args[i] switch
             {
                 "--base" => o with { Base = Value() },
+                "--pr" => o with { PrId = int.TryParse(Value(), out int id) && id > 0 ? id : throw new SmartWizzException(FailureKind.Usage, "--pr requires a positive integer") },
                 "--head" => o with { Head = Value() },
                 "--since" => o with { Since = Value() },
                 "--full-review" => o with { FullReview = true },
@@ -209,8 +225,10 @@ public sealed record Options
             throw new SmartWizzException(FailureKind.Usage, "--state-in requires --since and --state-out");
         if (o.Since is not null && !ReviewCheckpoint.IsCommitSha(o.Since))
             throw new SmartWizzException(FailureKind.Usage, "--since must be a full 40-character commit SHA");
-        if (!o.Help && string.IsNullOrWhiteSpace(o.Base))
-            throw new SmartWizzException(FailureKind.Usage, "--base is required");
+        if (!o.Help && ((o.PrId is null && string.IsNullOrWhiteSpace(o.Base)) || (o.PrId is not null && o.Base is not null)))
+            throw new SmartWizzException(FailureKind.Usage, "specify exactly one of --base or --pr");
+        if (o.PrId is not null && o.Head != "HEAD")
+            throw new SmartWizzException(FailureKind.Usage, "--head cannot be combined with --pr");
         return o;
     }
 }
