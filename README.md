@@ -21,7 +21,8 @@ dotnet run --project src/SmartWizz -- --repo ../my-repo --base origin/main
 
 | Option | Meaning |
 |---|---|
-| `--base <ref>` | Branch/commit the PR merges into (required). Diff is `base...head` (from the merge-base). |
+| `--base <ref>` | Branch/commit the PR merges into (alternative to `--pr`). Diff is `base...head` (from the merge-base). |
+| `--pr <id>` | Resolve an Azure DevOps PR using the installed `ado` CLI, fetch its refs, and review its exact commit IDs. |
 | `--head <ref>` | PR head, default `HEAD`. |
 | `--since <sha>` | Optional full SHA of the last successfully reviewed commit. Review only changes since it when it is an ancestor of head; otherwise fall back to a full PR review. |
 | `--full-review` | Review the complete PR diff even when `--since` is given. Earlier findings are still re-checked. |
@@ -31,7 +32,7 @@ dotnet run --project src/SmartWizz -- --repo ../my-repo --base origin/main
 | `--config <path>` | Config file, default `./smartwizz.json` if present. |
 | `--json <path>` | Also write the JSON report. |
 | `--fail-on <severity>` | Exit 1 if any finding is at/above `low`/`medium`/`high`/`critical`. |
-| `--publish` | Post findings as Azure DevOps PR threads. |
+| `--annotated-diff <path>` | Write the PR unified diff with AI review comments directly after affected added lines; report-only. |\n| `--publish` | Post findings as Azure DevOps PR threads. |
 
 **Exit codes:**
 
@@ -43,6 +44,32 @@ dotnet run --project src/SmartWizz -- --repo ../my-repo --base origin/main
 | `130` | Cancelled (Ctrl+C / SIGTERM). Outstanding requests stop, git is killed, and no partial review is reported. A second signal exits immediately. |
 
 A failure in any request batch fails the whole run; a partial review is never reported as complete.
+
+## Review an Azure DevOps PR with ado-devops (report-only)
+
+Install and authenticate [ado-devops](https://github.com/mycaravam-crypto/ado-devops)
+and run SmartWizz **inside a clone of the PR's repository**:
+
+```sh
+# SMARTWIZZ_ENDPOINT / SMARTWIZZ_MODEL configure the internal AI endpoint.
+# SMARTWIZZ_API_KEY supplies the model gateway token.
+smartwizz --repo . --pr 142 --annotated-diff review-142.diff --json review-142.json
+```
+
+SmartWizz invokes `ado pr context 142` to resolve the PR's exact target/source
+commit IDs, then `ado pr diff 142` to fetch their Git objects. No branch checkout
+is required, and your working tree is not modified. The resulting `review-142.diff`
+contains inline `# REVIEW` annotations, so it is **not** a git-applicable patch.
+
+The CLI performs **no Azure DevOps comment writes by default**. To publish validated
+findings explicitly, supply `--publish` along with configured Azure DevOps collection
+and project and an appropriate Azure DevOps token. For review-first workflows, inspect
+the generated diff before a separate publication run. Publishing is not a selective
+approval flow in this version.
+
+`--base` and `--pr` are mutually exclusive; `--pr` also cannot be combined
+with `--head`. The internal provider can be an OpenAI-compatible endpoint such as
+Open WebUI's `/api/chat/completions`.
 
 ## Incremental review
 
