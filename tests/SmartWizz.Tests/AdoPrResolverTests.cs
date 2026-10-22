@@ -17,7 +17,7 @@ public class AdoPrResolverTests
     [Fact]
     public void Resolves_actual_pr_commits_and_repository()
     {
-        var result = AdoPrResolver.ParseContext(Context, 142);
+        AdoPrResolver.Resolved result = AdoPrResolver.ParseContext(Context, 142);
         Assert.Equal(new string('a', 40), result.Head);
         Assert.Equal(new string('b', 40), result.Base);
         Assert.Equal("refs/heads/main", result.TargetBranch);
