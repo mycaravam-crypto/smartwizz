@@ -1,6 +1,6 @@
 # SmartWizz
 
-Small, lean AI pull request reviews. SmartWizz reads a PR diff from a local Git checkout, asks one OpenAI-compatible model for **bugs, security issues, and missing tests**, validates what comes back, and prints a report — optionally posting inline threads to Azure DevOps Server.
+Small, lean AI code reviews. SmartWizz reads a PR or staged diff from a local Git checkout, asks one OpenAI-compatible model for **bugs, security issues, and missing tests**, validates what comes back, and prints a report — optionally posting inline threads to Azure DevOps Server.
 
 It never runs PR code, never fixes, approves, or merges anything, and is report-only by default.
 
@@ -23,6 +23,7 @@ dotnet run --project src/SmartWizz -- --repo ../my-repo --base origin/main
 |---|---|
 | `--base <ref>` | Branch/commit the PR merges into (alternative to `--pr`). Diff is `base...head` (from the merge-base). |
 | `--pr <id>` | Resolve an Azure DevOps PR using the installed `ado` CLI, fetch its refs, and review its exact commit IDs. |
+| `--staged` | Review staged Git index changes locally, without a commit or PR. Excludes unstaged/untracked changes. |
 | `--head <ref>` | PR head, default `HEAD`. |
 | `--since <sha>` | Optional full SHA of the last successfully reviewed commit. Review only changes since it when it is an ancestor of head; otherwise fall back to a full PR review. |
 | `--full-review` | Review the complete PR diff even when `--since` is given. Earlier findings are still re-checked. |
@@ -44,6 +45,16 @@ dotnet run --project src/SmartWizz -- --repo ../my-repo --base origin/main
 | `130` | Cancelled (Ctrl+C / SIGTERM). Outstanding requests stop, git is killed, and no partial review is reported. A second signal exits immediately. |
 
 A failure in any request batch fails the whole run; a partial review is never reported as complete.
+
+## Review locally before committing
+
+Stage the changes you want reviewed with `git add -p`. Then run SmartWizz from its checkout (configured as above):
+
+```sh
+dotnet run --project src/SmartWizz -- --repo ../my-repo --staged
+```
+
+Only staged changes are sent to the configured AI provider. Unstaged and untracked files are ignored. The review does not change files, create commits, or publish comments. Use `--json` or `--annotated-diff` for optional local reports; `--staged` is intentionally incompatible with PR publication, `--since`, and checkpoint options.
 
 ## Review an Azure DevOps PR with ado-devops (report-only)
 

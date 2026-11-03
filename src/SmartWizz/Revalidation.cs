@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace SmartWizz;
 
-public enum ReviewMode { Full, Incremental }
+public enum ReviewMode { Full, Incremental, Staged }
 
 public sealed record ReviewPlan(ReviewMode Mode, string? SinceSha, string Reason)
 {

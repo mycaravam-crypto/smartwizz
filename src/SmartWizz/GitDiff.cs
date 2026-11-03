@@ -22,7 +22,14 @@ public sealed class FileDiff
 
 public static partial class GitDiff
 {
-    public static async Task<string> RunAsync(string repo, string baseRef, string headRef, int contextLines, CancellationToken ct)
+    public static Task<string> RunAsync(string repo, string baseRef, string headRef, int contextLines, CancellationToken ct) =>
+        RunDiffAsync(repo, [$"{baseRef}...{headRef}"], contextLines, ct);
+
+    // Index vs HEAD: does not include unstaged edits or untracked files.
+    public static Task<string> RunStagedAsync(string repo, int contextLines, CancellationToken ct) =>
+        RunDiffAsync(repo, ["--cached"], contextLines, ct);
+
+    static async Task<string> RunDiffAsync(string repo, IReadOnlyList<string> selection, int contextLines, CancellationToken ct)
     {
         var psi = new ProcessStartInfo("git")
         {
@@ -31,12 +38,14 @@ public static partial class GitDiff
             StandardOutputEncoding = Encoding.UTF8,
         };
         // --no-ext-diff / --no-textconv: never let repository config run commands.
-        foreach (string? a in new[]
+        foreach (string a in new[]
                  {
                      "-C", repo, "-c", "core.quotePath=false", "diff", "--no-color", "--no-ext-diff", "--no-textconv",
-                     "--find-renames", $"-U{contextLines}", $"{baseRef}...{headRef}", "--",
+                     "--find-renames", $"-U{contextLines}",
                  })
             psi.ArgumentList.Add(a);
+        foreach (string arg in selection) psi.ArgumentList.Add(arg);
+        psi.ArgumentList.Add("--");
 
         using Process p = Process.Start(psi) ?? throw new SmartWizzException(FailureKind.Git, "failed to start git");
         // Cancelling the reads alone would leave git running.
