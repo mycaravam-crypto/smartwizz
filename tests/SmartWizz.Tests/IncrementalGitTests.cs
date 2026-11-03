@@ -33,6 +33,37 @@ public class IncrementalGitTests
     }
 
     [Fact]
+    public async Task Staged_review_reads_index_but_not_unstaged_or_untracked_edits()
+    {
+        string dir = Path.Join(Path.GetTempPath(), "smartwizz-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            Git(dir, "init", "-b", "main");
+            Git(dir, "config", "user.email", "test@example.invalid");
+            Git(dir, "config", "user.name", "SmartWizz Test");
+            File.WriteAllText(Path.Join(dir, "app.cs"), "original\n");
+            Git(dir, "add", "app.cs");
+            Git(dir, "commit", "-m", "base");
+
+            Assert.Empty(await GitDiff.RunStagedAsync(dir, 3, default));
+            File.WriteAllText(Path.Join(dir, "app.cs"), "staged change\n");
+            Git(dir, "add", "app.cs");
+            File.WriteAllText(Path.Join(dir, "app.cs"), "unstaged change\n");
+            File.WriteAllText(Path.Join(dir, "untracked.cs"), "not staged\n");
+
+            string diff = await GitDiff.RunStagedAsync(dir, 3, default);
+            FileDiff file = Assert.Single(GitDiff.Parse(diff));
+            Assert.Equal("app.cs", file.Path);
+            Assert.Contains("staged change", diff);
+            Assert.DoesNotContain("unstaged change", diff);
+            Assert.DoesNotContain("untracked.cs", diff);
+            Assert.Contains(1, file.AddedLines);
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
     public async Task Incremental_review_only_includes_new_fix_commit_changes()
     {
         string dir = Path.Combine(Path.GetTempPath(), "smartwizz-" + Guid.NewGuid().ToString("N"));

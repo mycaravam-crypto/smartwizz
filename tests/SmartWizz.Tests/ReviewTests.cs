@@ -146,6 +146,24 @@ public class ReviewTests
         Assert.NotEqual(Review.BuildUserMessage([], []), Review.BuildUserMessage([], []));
 
     [Fact]
+    public void Staged_mode_requires_no_base_and_rejects_pr_or_checkpoint_options()
+    {
+        var staged = Options.Parse(["--staged", "--json", "review.json", "--fail-on", "high"]);
+        Assert.True(staged.Staged);
+        Assert.Null(staged.Base);
+        Assert.Equal(Severity.High, staged.FailOn);
+
+        string[][] incompatible =
+        [
+            ["--base", "main"], ["--pr", "12"], ["--head", "other"],
+            ["--since", new string('a', 40)], ["--state-out", "state.json"],
+            ["--full-review"], ["--publish"], ["--publish-github"],
+        ];
+        foreach (string[] other in incompatible)
+            Assert.Throws<SmartWizzException>(() => Options.Parse(["--staged", .. other]));
+    }
+
+    [Fact]
     public void Options_require_base_and_validate_severity()
     {
         Assert.Throws<SmartWizzException>(() => Options.Parse([]));

@@ -10,6 +10,15 @@ public static class IncrementalReview
     public static async Task<ReviewRun> RunAsync(Options opt, ReviewCheckpoint? previous, ReviewConfig cfg, Provider provider,
         ReviewPrompts prompts, string reviewScope, RuleCatalog? catalog, TextWriter log, CancellationToken ct)
     {
+        if (opt.Staged)
+        {
+            ReviewPlan stagedPlan = new(ReviewMode.Staged, null, "git index");
+            log.WriteLine("review mode: staged (git index)");
+            List<FileDiff> stagedFiles = GitDiff.Parse(await GitDiff.RunStagedAsync(opt.Repo, cfg.ContextLines, ct));
+            ReviewResult stagedResult = await Review.RunAsync(stagedFiles, cfg, provider, prompts.Review, ct, catalog);
+            return new ReviewRun(stagedPlan, stagedResult, null);
+        }
+
         ReviewPlan plan = await ReviewPlan.DecideAsync(opt.Repo, opt.Head, opt.Since, opt.StateIn is not null, previous, opt.FullReview, ct);
         log.WriteLine($"review mode: {plan.Mode.ToString().ToLowerInvariant()} ({plan.Reason})");
         List<FileDiff> files = GitDiff.Parse(await GitDiff.RunIncrementalAsync(opt.Repo, opt.Base!, opt.Head, plan.SinceSha, cfg.ContextLines, ct));
