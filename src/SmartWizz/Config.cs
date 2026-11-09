@@ -139,6 +139,8 @@ public sealed class ReviewConfig
     public int ContextLines { get; set; } = 10;
     public int MaxCharsPerRequest { get; set; } = 60_000;
     public double MinConfidence { get; set; } = 0.5;
+    // false = don't ask the model for suggestedFix; saves the slowest part of a local model's output.
+    public bool SuggestFixes { get; set; } = true;
     // Coding guide to check compliance with, as a ruleset file (rulesets/README.md). Swap the file to swap the guide.
     public string? Ruleset { get; set; }
     // Legacy alternative to Ruleset: a whole Markdown guide pasted into the prompt. Fine for large models only.

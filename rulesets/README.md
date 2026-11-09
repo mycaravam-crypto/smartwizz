@@ -83,6 +83,12 @@ also accepts, so that `tools/ruleset.py` can test them.
   reader can see the gap is deliberate.
 - **Use severity on purpose.** With `maxChecksPerRequest`, high-severity checks go in
   the first request together with the bug review; low ones may come last.
+- **Tune triggers from real reviews.** The JSON report (`--json`) has a `checks`
+  entry per check: `sent` (requests that included it) and `findings` (kept findings
+  with its ID). Only IDs and counts, no code. Sum many reports with
+  `python3 tools/ruleset.py report reports/*.json`. High `sent` with a hit rate near
+  0 means the trigger is too broad, or the check is one the model can't apply:
+  tighten or remove it. Checks listed as never sent may have a trigger that can't fire.
 
 ## Translating a coding guide
 

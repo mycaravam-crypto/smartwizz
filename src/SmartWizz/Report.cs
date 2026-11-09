@@ -29,6 +29,7 @@ public static class Report
         r.UserPromptCharacters,
         r.PromptTokens,
         r.CompletionTokens,
+        r.Checks,
         r.Findings,
         r.SkippedFiles,
         r.Rejected,

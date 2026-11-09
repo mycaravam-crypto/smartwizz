@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -22,6 +23,14 @@ public sealed record Finding(
 
 public sealed record SkippedFile(string Path, string Reason);
 
+public sealed class CheckCounts
+{
+    // Requests that included the check.
+    public int Sent { get; set; }
+    // Findings with the check's ID that survived validation and deduplication.
+    public int Findings { get; set; }
+}
+
 public sealed class ReviewResult
 {
     public int ReviewedFiles { get; set; }
@@ -33,6 +42,8 @@ public sealed class ReviewResult
     public string? RulesetName { get; set; }
     public string? RulesetVersion { get; set; }
     public string? RulesetSha256 { get; set; }
+    // Every check of the ruleset, including those never sent, so triggers can be tuned from reports. Null without a ruleset.
+    public SortedDictionary<string, CheckCounts>? Checks { get; set; }
     // Provider calls made; more than the number of batches means standard checks needed extra passes.
     public int Requests { get; set; }
     public long SystemPromptCharacters { get; set; }
@@ -50,7 +61,13 @@ public static partial class Review
     public static async Task<ReviewResult> RunAsync(
         List<FileDiff> files, ReviewConfig cfg, Provider provider, ReviewPrompts prompts, CancellationToken ct, Ruleset? ruleset = null)
     {
-        var result = new ReviewResult { RulesetName = ruleset?.Name, RulesetVersion = ruleset?.Version, RulesetSha256 = ruleset?.Sha256 };
+        var result = new ReviewResult
+        {
+            RulesetName = ruleset?.Name,
+            RulesetVersion = ruleset?.Version,
+            RulesetSha256 = ruleset?.Sha256,
+            Checks = ruleset is null ? null : new(ruleset.Checks.ToDictionary(c => c.Id, _ => new CheckCounts()), StringComparer.Ordinal),
+        };
         var batches = new List<List<FileDiff>>();
         var batch = new List<FileDiff>();
         int size = 0;
@@ -112,6 +129,7 @@ public static partial class Review
                             (sent, diff) = (relevant, BuildDiff(relevant, null, nonce));
                     }
                     string task = Ruleset.BuildPrompt(general ? prompts.Review : prompts.Standards, checks, general);
+                    foreach (Ruleset.Check check in checks) result.Checks![check.Id].Sent++;
                     all.AddRange(await AskAsync(diff, task, sent, [.. checks.Select(c => c.Id)], !general));
                 }
             }
@@ -124,7 +142,7 @@ public static partial class Review
                 result.UserPromptCharacters += userMessage.Length;
                 result.Requests++;
                 // A standards-only pass may only use the IDs it was sent; elsewhere ruleId stays free (bug categories).
-                OutputSchema schema = FindingsSchema(sent.Select(f => f.Path), standardsOnly ? standardIds : null);
+                OutputSchema schema = FindingsSchema(sent.Select(f => f.Path), standardsOnly ? standardIds : null, cfg.SuggestFixes);
                 Completion reply = await provider.CompleteAsync(prompts.System, userMessage, ct, schema);
                 if (reply.PromptTokens is { } inputTokens && reply.CompletionTokens is { } outputTokens)
                 {
@@ -138,6 +156,8 @@ public static partial class Review
         }
 
         result.Findings = Dedupe(all);
+        foreach (Finding f in result.Findings)
+            if (result.Checks?.TryGetValue(f.RuleId, out CheckCounts? counts) == true) counts.Findings++;
         if (completeUsage)
         {
             result.PromptTokens = promptTokens;
@@ -145,6 +165,15 @@ public static partial class Review
         }
         return result;
     }
+
+    // Fills prompts/review-format.md. [[fix:...]] spans stay only when fixes are wanted: suggestedFix is the longest
+    // output field, and output tokens are the slow part on local hardware.
+    public static string FormatPrompt(string template, ReviewConfig cfg) =>
+        FixSpan().Replace(template, cfg.SuggestFixes ? "$1" : "")
+            .Replace("{minConfidence}", cfg.MinConfidence.ToString(CultureInfo.InvariantCulture));
+
+    [GeneratedRegex(@"\[\[fix:(.*?)\]\]", RegexOptions.Singleline)]
+    private static partial Regex FixSpan();
 
     public static string SystemPrompt(string basePrompt, string? standard) => standard is null ? basePrompt : basePrompt + $$"""
 
@@ -188,7 +217,7 @@ public static partial class Review
 
     // Mirrors the finding shape in prompts/review-format.md. Strict mode needs every property listed as required,
     // so optional ones allow null. ruleIds = null: free string (bug categories; std-* IDs are checked in Validate).
-    public static OutputSchema FindingsSchema(IEnumerable<string> paths, IEnumerable<string>? ruleIds)
+    public static OutputSchema FindingsSchema(IEnumerable<string> paths, IEnumerable<string>? ruleIds, bool suggestFixes = true)
     {
         static JsonArray Strings(IEnumerable<string> values) => [.. values.Select(v => (JsonNode)JsonValue.Create(v))];
         JsonObject ruleId = ruleIds is null ? new() { ["type"] = "string" } : new() { ["type"] = "string", ["enum"] = Strings(ruleIds) };
@@ -210,6 +239,11 @@ public static partial class Review
             ["required"] = Strings(["ruleId", "severity", "title", "message", "filePath", "startLine", "endLine", "confidence", "suggestedFix"]),
             ["additionalProperties"] = false,
         };
+        if (!suggestFixes)
+        {
+            finding["properties"]!.AsObject().Remove("suggestedFix");
+            finding["required"]!.AsArray().RemoveAll(n => n!.GetValue<string>() == "suggestedFix");
+        }
         return new OutputSchema("findings", new JsonObject
         {
             ["type"] = "object",
