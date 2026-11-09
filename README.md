@@ -286,26 +286,14 @@ Any server that speaks the OpenAI chat-completions format works: vLLM, Ollama, L
 
 ## Small local models
 
-SmartWizz is built to work with local models below ~30B parameters. [`smartwizz.local.example.json`](smartwizz.local.example.json) is a starting point:
-
-```json
-{
-  "provider": { "endpoint": "http://localhost:11434/v1/chat/completions", "model": "your-local-model", "timeoutSeconds": 600 },
-  "review": {
-    "ruleset": "rulesets/engineering-standard.json",
-    "maxChecksPerRequest": 8,
-    "maxCharsPerRequest": 16000,
-    "contextLines": 5
-  }
-}
-```
+SmartWizz is built to work with local models below ~30B parameters. Start from [`smartwizz.local.example.json`](smartwizz.local.example.json): copy it to `smartwizz.json` and set your model.
 
 What each piece does for a small model:
 
 - **The ruleset** sends only checks whose triggers match the change, as short instructions with a Bad/Good example. A small change usually gets 0–3 checks instead of the whole guide.
 - **`maxChecksPerRequest`** keeps each prompt to a few checks. Larger changes get extra standards-only requests rather than one long list the model half-follows. A batch takes `applicable checks ÷ 8` requests, rounded up (at most 4 with the default ruleset).
 - **`maxCharsPerRequest` / `contextLines`** keep the diff small enough for the context window. One request is roughly the system prompt (~2.5k characters plus ~450 per check) plus the diff batch.
-- **Context window:** make sure the server gives the model enough context, or it silently drops the start of the prompt. With the values above, allow at least 8k tokens. Ollama is configured by `OLLAMA_CONTEXT_LENGTH` or the model's `num_ctx`; the chat-completions API cannot set it.
+- **Context window:** make sure the server gives the model enough context, or it silently drops the start of the prompt. With the example values, allow at least 8k tokens. Ollama is configured by `OLLAMA_CONTEXT_LENGTH` or the model's `num_ctx`; the chat-completions API cannot set it.
 - **Output:** the model must answer with JSON. If a model often fails (`[invalid-model-output]`), try a larger or code-tuned model before loosening anything else.
 
 Measure on your own model with the [benchmark](benchmarks/README.md) before relying on it. `tools/ruleset.py preview` shows what a diff will send.

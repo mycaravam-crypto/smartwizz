@@ -157,7 +157,7 @@ public sealed class Ruleset
     public List<Check> Select(IReadOnlyCollection<FileDiff> batch) =>
         [.. Checks.Where(c => batch.Any(c.AppliesTo)).OrderByDescending(c => c.Severity)];
 
-    // maxPerPass 0 = one pass with every check.
+    // maxPerPass 0 = one pass with every check. Always at least one pass: the general review runs even without checks.
     public static List<List<Check>> Passes(List<Check> applicable, int maxPerPass) =>
         maxPerPass <= 0 || applicable.Count <= maxPerPass ? [applicable] : [.. applicable.Chunk(maxPerPass).Select(c => c.ToList())];
 

@@ -97,13 +97,12 @@ public static partial class Review
                 {
                     bool general = pass == 0;
                     string prompt = Ruleset.BuildPrompt(general ? systemPrompt : standardsPrompt ?? systemPrompt, passes[pass], general);
-                    var ids = passes[pass].ToDictionary(c => c.Id, c => c.Id, StringComparer.OrdinalIgnoreCase);
-                    all.AddRange(await AskAsync(prompt, ids, !general));
+                    all.AddRange(await AskAsync(prompt, [.. passes[pass].Select(c => c.Id)], !general));
                 }
             }
             result.ReviewedFiles += b.Count;
 
-            async Task<List<Finding>> AskAsync(string prompt, Dictionary<string, string>? standardIds, bool standardsOnly)
+            async Task<List<Finding>> AskAsync(string prompt, HashSet<string>? standardIds, bool standardsOnly)
             {
                 result.SystemPromptCharacters += prompt.Length;
                 result.UserPromptCharacters += userMessage.Length;
@@ -164,7 +163,7 @@ public static partial class Review
 
     public static List<Finding> Parse(
         string reply, IReadOnlyDictionary<string, FileDiff> files, double minConfidence, List<string> rejected,
-        IReadOnlyDictionary<string, string>? standardIds = null, bool standardsOnly = false)
+        IEnumerable<string>? standardIds = null, bool standardsOnly = false)
     {
         // Tolerates prose or ```json fences around the object.
         int start = reply.IndexOf('{'), end = reply.LastIndexOf('}');
@@ -182,10 +181,11 @@ public static partial class Review
                 || arr.ValueKind != JsonValueKind.Array)
                 throw new SmartWizzException(FailureKind.InvalidModelOutput, "invalid model output: missing \"findings\" array");
 
+            HashSet<string>? allowed = standardIds is null ? null : new(standardIds, StringComparer.OrdinalIgnoreCase);
             var list = new List<Finding>();
             foreach (JsonElement e in arr.EnumerateArray())
             {
-                Finding? f = Validate(e, files, minConfidence, standardIds, standardsOnly, out string? reason);
+                Finding? f = Validate(e, files, minConfidence, allowed, standardsOnly, out string? reason);
                 if (f is null) rejected.Add(reason);
                 else list.Add(f);
             }
@@ -194,7 +194,7 @@ public static partial class Review
     }
 
     static Finding? Validate(JsonElement e, IReadOnlyDictionary<string, FileDiff> files, double minConfidence,
-        IReadOnlyDictionary<string, string>? standardIds, bool standardsOnly, out string reason)
+        HashSet<string>? standardIds, bool standardsOnly, out string reason)
     {
         reason = "";
         if (e.ValueKind != JsonValueKind.Object) return Reject(out reason, "finding is not an object");

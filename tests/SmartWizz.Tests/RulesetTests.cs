@@ -110,7 +110,7 @@ public sealed class RulesetTests
     {
         List<FileDiff> files = Added("src/A.cs", "catch { }");
         var byPath = files.ToDictionary(f => f.Path);
-        var ids = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["std-swallowed"] = "std-swallowed" };
+        string[] ids = ["std-swallowed"];
 
         Assert.Equal("std-swallowed", Assert.Single(Review.Parse(Finding("STD-Swallowed"), byPath, 0.5, [], ids)).RuleId);
         Assert.Single(Review.Parse(Finding("null-dereference"), byPath, 0.5, [], ids));
