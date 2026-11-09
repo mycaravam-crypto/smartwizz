@@ -55,10 +55,28 @@ public static class Report
     static string Label(TrackedFinding t) =>
         $"{t.Finding.Severity.ToString().ToUpperInvariant()}{(t.Status == FindingStatus.Regressed ? ", REGRESSED" : "")}";
 
+    static string Summary(ReviewResult r) =>
+        $"SmartWizz: {r.Findings.Count} finding(s) in {r.ReviewedFiles} reviewed file(s); " +
+        $"{r.SkippedFiles.Count} skipped file(s), {r.Rejected.Count} rejected finding(s).";
+
+    static string OneLine(string text) => string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+    // One line per finding, parsed by the problem matcher in .vscode/tasks.json.
+    // Model text is flattened so it cannot forge a line for another file.
+    public static void WriteProblems(ReviewResult r, TextWriter w)
+    {
+        w.WriteLine(Summary(r));
+        foreach (Finding f in r.Findings)
+        {
+            string level = f.Severity switch { Severity.Critical or Severity.High => "error", Severity.Medium => "warning", _ => "info" };
+            string fix = f.SuggestedFix is { } s ? $" Suggested fix: {OneLine(s)}" : "";
+            w.WriteLine($"{f.FilePath}:{f.StartLine}:{level}: {OneLine(f.Title)} ({f.RuleId}): {OneLine(f.Message)}{fix} [fp {f.Fingerprint}]");
+        }
+    }
+
     public static void WriteConsole(ReviewResult r, TextWriter w)
     {
-        w.WriteLine($"SmartWizz: {r.Findings.Count} finding(s) in {r.ReviewedFiles} reviewed file(s); " +
-                    $"{r.SkippedFiles.Count} skipped file(s), {r.Rejected.Count} rejected finding(s).");
+        w.WriteLine(Summary(r));
         if (r.Models.Count > 0)
             w.WriteLine($"Reviewed by: {string.Join(", ", r.Models)}");
         foreach (Finding f in r.Findings)

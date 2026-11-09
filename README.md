@@ -32,6 +32,7 @@ dotnet run --project src/SmartWizz -- --repo ../my-repo --base origin/main
 | `--repo <path>` | Git checkout, default current directory. |
 | `--config <path>` | Config file, default `./smartwizz.json` if present. |
 | `--json <path>` | Also write the JSON report. |
+| `--format <name>` | Console output: `console` (default) or `problems`, one line per finding for editors. See [VS Code](#vs-code). |
 | `--fail-on <severity>` | Exit 1 if any finding is at/above `low`/`medium`/`high`/`critical`. |
 | `--annotated-diff <path>` | Write the PR unified diff with AI review comments directly after affected added lines; report-only. |\n| `--publish` | Post findings as Azure DevOps PR threads. |
 
@@ -91,6 +92,47 @@ smartwizz check
 **Update:** pull, then repeat step 1. The version comes from the commit count, so commit local changes first; at an unchanged version the update does nothing. Step 2 is not needed again, but copy `rules/` again if you want newer rules.
 
 **Uninstall:** `dotnet tool uninstall --global MyCaravam.SmartWizz`, and delete the config directory if you no longer need it.
+
+## VS Code
+
+SmartWizz can show `smartwizz check` findings in the editor, as squiggles and entries in the Problems panel. It uses a VS Code task, so no extension is needed.
+
+**Set it up.** [Install the `smartwizz` command](#install-as-a-net-tool), then copy the task into the repo you want to review, from that repo's root:
+
+```sh
+mkdir -p .vscode && cp /path/to/smartwizz/.vscode/tasks.json .vscode/
+```
+
+If the repo already has a `.vscode/tasks.json`, add the `SmartWizz: check` entry to its `tasks` array instead. Open the repo root as your VS Code folder. On Windows with WSL, use a WSL window so the task finds the command.
+
+**Run it.** Choose **Terminal > Run Task > SmartWizz: check**. To put it on a key, open **Preferences: Open Keyboard Shortcuts (JSON)** and add:
+
+```json
+{ "key": "ctrl+alt+r", "command": "workbench.action.tasks.runTask", "args": "SmartWizz: check" }
+```
+
+**Read the results.** Affected lines get a squiggle, and hovering shows the problem and any suggested fix. `Ctrl+Shift+M` opens the Problems panel, and `F8` jumps to the next finding.
+
+| Finding severity | VS Code level |
+|---|---|
+| critical, high | Error |
+| medium | Warning |
+| low | Info |
+
+**How it works.** The task runs `smartwizz check --format problems`, which prints one line per finding:
+
+```
+src/Cart.cs:42:error: Total ignores discount (wrong-calculation): Uses the subtotal. Suggested fix: return subtotal - discount; [fp 517d4ce89541b97a]
+```
+
+The `problemMatcher` in `tasks.json` splits each line into file, line number, severity and message, and VS Code turns the result into diagnostics. Line numbers match the files in your editor because `check` reviews the working tree. Anything else the command prints, such as the summary or an untracked-files note, stays in the task's terminal.
+
+**Limits:**
+
+- Findings are a snapshot. Re-run the task after editing to refresh them.
+- Each finding marks its whole first line, even when it covers several lines.
+- The task reviews uncommitted changes. To review only staged changes, add `"--staged"` to `args`.
+- Fixes are shown, not applied. A multi-line fix is flattened onto one line, so run `smartwizz check` in a terminal to see it formatted.
 
 ## Review locally before committing
 
