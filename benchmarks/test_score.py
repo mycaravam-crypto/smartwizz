@@ -48,6 +48,17 @@ class ScoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             score(self.key, report, self.expected, {"a": "B02", "b": None})
 
+    def test_line_tolerance_accepts_near_lines_and_prefers_the_closest_defect(self):
+        report = {"findings": [self.finding("a", 3)]}
+        self.assertEqual(0, score(self.key, report, self.expected)["matched"])
+        # Line 3 is within 2 of both defects; the closest one, B02 on line 2, gets it.
+        self.assertEqual(["B02"], score(self.key, report, self.expected, tolerance=2)["matchedIds"])
+
+        verified = score(self.key, report, self.expected, {"a": "B02"}, tolerance=1)
+        self.assertEqual(["B02"], verified["verified"]["matchedIds"])
+        with self.assertRaises(ValueError):
+            score(self.key, report, self.expected, {"a": "B01"}, tolerance=1)
+
     def test_missing_or_duplicate_ground_truth_anchor_is_rejected(self):
         self.fixture.write_text("first issue\nfirst issue\n", encoding="utf-8")
         with self.assertRaises(ValueError):

@@ -16,7 +16,11 @@ def locations(key, fixture):
     return found
 
 
-def score(key, report, expected, adjudication=None):
+def near(expected_line, line, tolerance):
+    return isinstance(line, int) and abs(expected_line - line) <= tolerance
+
+
+def score(key, report, expected, adjudication=None, tolerance=0):
     defects = key["defects"]
     findings = report.get("findings", [])
     if not isinstance(findings, list):
@@ -26,9 +30,10 @@ def score(key, report, expected, adjudication=None):
     for finding in findings:
         path = finding.get("filePath", "").replace("\\", "/").removeprefix("./")
         line = finding.get("startLine")
-        candidate = next((defect for defect in defects if path == source
-                          and expected[defect["id"]] == line
-                          and defect["id"] not in matches), None)
+        candidate = min((defect for defect in defects if path == source
+                         and near(expected[defect["id"]], line, tolerance)
+                         and defect["id"] not in matches),
+                        key=lambda defect: abs(expected[defect["id"]] - line), default=None)
         if candidate is not None:
             matches.add(candidate["id"])
 
@@ -65,7 +70,7 @@ def score(key, report, expected, adjudication=None):
             if defect_id not in known_ids or defect_id in approved:
                 raise ValueError(f"Invalid or duplicate verified defect ID: {defect_id}")
             if (finding.get("filePath", "").replace("\\", "/").removeprefix("./") != source
-                    or finding.get("startLine") != expected[defect_id]):
+                    or not near(expected[defect_id], finding.get("startLine"), tolerance)):
                 raise ValueError(f"Verified defect ID {defect_id} does not match location")
             approved.add(defect_id)
         tp = len(approved)
@@ -85,6 +90,8 @@ def main():
     parser.add_argument("--fixture", type=Path, help="Path to the checked-out defective source fixture")
     parser.add_argument("--adjudication", type=Path,
                         help="Optional JSON object of fingerprint -> defect ID or null; one report only")
+    parser.add_argument("--line-tolerance", type=int, default=0,
+                        help="Accept findings up to this many lines from the seeded defect (default 0: exact line)")
     args = parser.parse_args()
     if args.adjudication and len(args.reports) != 1:
         parser.error("--adjudication requires exactly one report")
@@ -98,7 +105,7 @@ def main():
     scores = {}
     for report_path in args.reports:
         report = json.loads(report_path.read_text(encoding="utf-8"))
-        scores[str(report_path)] = score(key, report, expected, verdicts)
+        scores[str(report_path)] = score(key, report, expected, verdicts, args.line_tolerance)
     if len(scores) > 1:
         first = next(iter(scores.values()))
         last = list(scores.values())[-1]
