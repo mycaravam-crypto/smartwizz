@@ -48,13 +48,7 @@ A failure in any request batch fails the whole run; a partial review is never re
 
 ## Quick local check
 
-Install the `smartwizz` command once (re-run to update; existing config is kept):
-
-```sh
-tools/install.sh    # copies smartwizz.json, rules/ and .env to ~/.config/smartwizz
-```
-
-Then, inside any Git repo:
+[Install the `smartwizz` command](#install-as-a-net-tool) once. Then, inside any Git repo:
 
 ```sh
 smartwizz check            # all uncommitted changes to tracked files
@@ -64,8 +58,6 @@ smartwizz check --staged   # only what is staged
 `check` sends those changes to the provider configured in `~/.config/smartwizz/smartwizz.json`. It never reads `smartwizz.json` or `.env` from the repo being reviewed, so a cloned repo cannot redirect your API key. Untracked files are listed but not reviewed; `git add -N <path>` includes them. `--json`, `--annotated-diff` and `--fail-on` work as usual.
 
 ## Install as a .NET tool
-
-An alternative to `tools/install.sh`. Use one or the other: if you already ran the script, delete `~/.local/bin/smartwizz` first, because it comes earlier on the `PATH`.
 
 SmartWizz is not on NuGet, so you build the package from a clone. You need the .NET 10 SDK, `git`, and `~/.dotnet/tools` (`%USERPROFILE%\.dotnet\tools` on Windows) on your `PATH`.
 
