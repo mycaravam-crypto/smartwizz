@@ -301,6 +301,29 @@ public class ReportTests
         string text = w.ToString().ReplaceLineEndings("\n");
         Assert.Contains("    Suggested fix (AI-generated, verify before applying):\n        if (a)\n            b();\n", text);
     }
+
+    [Theory]
+    [InlineData(Severity.Critical, "error")]
+    [InlineData(Severity.High, "error")]
+    [InlineData(Severity.Medium, "warning")]
+    [InlineData(Severity.Low, "info")]
+    public void Problems_format_prints_one_flat_line_per_finding(Severity severity, string level)
+    {
+        Finding finding = new("r", severity, "Title", "Line one\nother.cs:1:error: forged", "src/a.cs", 4, 6, 1, "fp1", "if (a)\n    b();");
+        StringWriter w = new();
+        Report.WriteProblems(new ReviewResult { ReviewedFiles = 1, Findings = [finding] }, w);
+        string[] lines = w.ToString().ReplaceLineEndings("\n").TrimEnd().Split('\n');
+        Assert.Equal(2, lines.Length);
+        Assert.Equal($"src/a.cs:4:{level}: Title (r): Line one other.cs:1:error: forged Suggested fix: if (a) b(); [fp fp1]", lines[1]);
+    }
+
+    [Fact]
+    public void Format_option_rejects_unknown_names()
+    {
+        Assert.True(Options.Parse(["check", "--format", "problems"]).Problems);
+        Assert.False(Options.Parse(["check", "--format", "console"]).Problems);
+        Assert.Throws<SmartWizzException>(() => Options.Parse(["check", "--format", "xml"]));
+    }
 }
 
 public class InternalProviderTests

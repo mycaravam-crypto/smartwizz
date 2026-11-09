@@ -8,7 +8,7 @@ namespace SmartWizz;
 public static class Program
 {
     const string Usage = """
-        Usage: smartwizz check [--staged] [--repo <path>] [--config <path>] [--json <path>] [--annotated-diff <path>] [--fail-on <sev>]
+        Usage: smartwizz check [--staged] [--repo <path>] [--config <path>] [--format <name>] [--json <path>] [--annotated-diff <path>] [--fail-on <sev>]
                smartwizz (--base <ref> | --pr <id> | --staged) [options]
 
           check               Review your uncommitted changes (with --staged: only the index).
@@ -22,6 +22,7 @@ public static class Program
           --repo <path>       Git checkout (default: current directory)
           --config <path>     Config file (default: ./smartwizz.json if present)
           --json <path>       Also write the JSON report to this file
+          --format <name>     Console output: console (default) or problems (one line per finding, for editors)
           --annotated-diff <path>  Write review findings inline with the unified PR diff
           --state-in <path>   Load previous review checkpoint (requires --since and --state-out)
           --state-out <path>  Write review checkpoint after a completed review
@@ -139,7 +140,8 @@ public static class Program
         (ReviewPlan plan, ReviewResult result, ReviewCheckpoint? next) = await IncrementalReview.RunAsync(
             opt, previous, cfg.Review, provider, new ReviewPrompts(systemPrompt, revalidationPrompt), reviewScope, catalog, Console.Error, ct);
 
-        Report.WriteConsole(result, Console.Out);
+        if (opt.Problems) Report.WriteProblems(result, Console.Out);
+        else Report.WriteConsole(result, Console.Out);
         if (next is not null)
             Report.WriteCheckpoint(next, previous, Console.Out);
         if (opt.JsonPath is not null)
@@ -203,6 +205,7 @@ public sealed record Options
     public string Repo { get; init; } = ".";
     public string? ConfigPath { get; init; }
     public string? JsonPath { get; init; }
+    public bool Problems { get; init; }
     public string? AnnotatedDiffPath { get; init; }
     public string? StateIn { get; init; }
     public string? StateOut { get; init; }
@@ -229,6 +232,12 @@ public sealed record Options
                 "--repo" => o with { Repo = Value() },
                 "--config" => o with { ConfigPath = Value() },
                 "--json" => o with { JsonPath = Value() },
+                "--format" => Value() switch
+                {
+                    "console" => o with { Problems = false },
+                    "problems" => o with { Problems = true },
+                    _ => throw new SmartWizzException(FailureKind.Usage, $"invalid format: {args[i]}"),
+                },
                 "--annotated-diff" => o with { AnnotatedDiffPath = Value() },
                 "--state-in" => o with { StateIn = Value() },
                 "--state-out" => o with { StateOut = Value() },
