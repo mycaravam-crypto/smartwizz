@@ -198,7 +198,8 @@ See [`smartwizz.example.json`](smartwizz.example.json). Notable settings:
 
 - `review.contextLines` — unchanged lines shown around each change (default 10).
 - `review.maxCharsPerRequest` — files are packed into requests up to this size; a single larger file is skipped and listed, never truncated.
-- `review.minConfidence` — findings below this are dropped (default 0.5).
+- `review.minConfidence` — findings below this are dropped (default 0.5). The prompt also tells the model this floor, so it doesn't write out findings that would be dropped.
+- `review.suggestFixes` — `false` stops asking the model for `suggestedFix`, the longest output field (default `true`).
 - `review.exclude` — glob patterns matched against path and file name; replaces the built-in list (lockfiles, minified, generated, migrations).
 - `provider.temperature` — `null` to omit for models that reject it.
 - `provider.maxRetries` (default 2) and `provider.fallbackModels` (default none) — see *Overload handling* below.
@@ -298,6 +299,7 @@ What each piece does for a small model:
 - **Follow-up passes** send only the files their checks apply to when that is under half of the batch; otherwise they resend the full diff, which a prefix cache makes nearly free.
 - **Context window:** make sure the server gives the model enough context, or it silently drops the start of the prompt. With the example values, allow at least 8k tokens. Ollama is configured by `OLLAMA_CONTEXT_LENGTH` or the model's `num_ctx`; the chat-completions API cannot set it.
 - **Output:** the model must answer with JSON. The example enables `provider.jsonSchema`, which makes the server constrain output to the finding schema (llama.cpp server, vLLM, Ollama 0.5+ and LM Studio support it); follow-up passes may then only produce the check IDs they were sent. On a server without support, set it to `false`. If a model still often fails (`[invalid-model-output]`), try a larger or code-tuned model before loosening anything else.
+- **Lean output:** generating tokens is usually the slowest step on local hardware, so the example sets `suggestFixes: false`, and the model is told the `minConfidence` floor rather than writing out findings that get dropped.
 
 Measure on your own model with the [benchmark](benchmarks/README.md) before relying on it. `tools/ruleset.py preview` shows what a diff will send.
 

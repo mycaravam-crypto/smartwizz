@@ -16,6 +16,7 @@
     "maxChecksPerRequest": 8, // more applicable checks go to extra standards-only requests
     "maxCharsPerRequest": 16000, // diff characters per request
     "contextLines": 5,
-    "minConfidence": 0.6
+    "minConfidence": 0.6, // also told to the model, so it doesn't write out findings that would be dropped
+    "suggestFixes": false // skip suggestedFix, the longest output field
   }
 }

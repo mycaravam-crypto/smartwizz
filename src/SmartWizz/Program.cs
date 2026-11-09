@@ -129,7 +129,7 @@ public static class Program
         string? legacyStandard = cfg.Review.Guidelines is { } guidelines ? await File.ReadAllTextAsync(guidelines, ct) : null;
         // One system prompt for every pass, so the system prompt and diff form a prefix servers can cache.
         var prompts = new ReviewPrompts(
-            Review.SystemPrompt(LoadPrompt("review-format.md"), legacyStandard),
+            Review.SystemPrompt(Review.FormatPrompt(LoadPrompt("review-format.md"), cfg.Review), legacyStandard),
             LoadPrompt("code-review.md"), LoadPrompt("revalidate.md"), LoadPrompt("standards-review.md"));
         string scopeMaterial = JsonSerializer.Serialize(cfg) + prompts.System + prompts.Review + prompts.Standards + prompts.Revalidation + (ruleset?.Sha256 ?? "");
         string reviewScope = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(scopeMaterial)));

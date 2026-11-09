@@ -12,6 +12,7 @@
     "contextLines": 10,
     "maxCharsPerRequest": 60000,
     "minConfidence": 0.5,
+    "suggestFixes": true, // false = don't ask for suggestedFix; faster on local models
     "ruleset": "rulesets/engineering-standard.json", // coding guide to check against; relative to this file. Remove for bugs/security only.
     "maxChecksPerRequest": 0 // 0 = all checks with the review; e.g. 8 for small models (the rest go to extra requests)
     // "exclude": ["*.lock", "*.min.js", "*/Migrations/*"]  -- replaces the built-in list

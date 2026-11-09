@@ -4,6 +4,7 @@
   python3 tools/ruleset.py check   [RULESET] [--catalog CATALOG]   validate; with a catalog, every llm rule must be covered
   python3 tools/ruleset.py stats   [RULESET]                       checks in scope and prompt size per file type
   python3 tools/ruleset.py preview [RULESET] --diff FILE|- [--max N]  checks a diff would send, split into passes
+  python3 tools/ruleset.py report  REPORT.json [REPORT.json ...]   sent/finding counts summed over SmartWizz JSON reports
 
 SmartWizz validates the same file when it loads it; this tool gives fast feedback while you write one.
 Sizes are characters of check text (roughly 4 per token for English).
@@ -114,20 +115,48 @@ def added_lines(diff_text):
     return files
 
 
+def report(paths):
+    totals = {}
+    for path in paths:
+        checks = json.loads(Path(path).read_text(encoding="utf-8")).get("checks")
+        if checks is None:
+            print(f"skipped {path}: no per-check counts (review ran without a ruleset, or an older SmartWizz)", file=sys.stderr)
+        for cid, counts in (checks or {}).items():
+            total = totals.setdefault(cid, {"sent": 0, "findings": 0})
+            total["sent"] += counts["sent"]
+            total["findings"] += counts["findings"]
+    if not totals:
+        raise SystemExit("no per-check counts in the given reports")
+    sent = sorted((c for c in totals.items() if c[1]["sent"]), key=lambda c: (-c[1]["sent"], c[0]))
+    print(f"{'check':40} {'sent':>6} {'findings':>9} {'hit rate':>9}")
+    for cid, t in sent:
+        print(f"{cid:40} {t['sent']:>6} {t['findings']:>9} {t['findings'] / t['sent']:>9.2f}")
+    never = sorted(cid for cid, t in totals.items() if not t["sent"])
+    print("\nNever sent (review their triggers): " + (", ".join(never) or "none"))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["check", "stats", "preview"])
-    parser.add_argument("ruleset", nargs="?", default=str(DEFAULT))
+    parser.add_argument("command", choices=["check", "stats", "preview", "report"])
+    parser.add_argument("paths", nargs="*", metavar="PATH", help="the ruleset; for report, the JSON reports")
     parser.add_argument("--catalog", help="rule catalog whose llm rules the ruleset must cover (check)")
     parser.add_argument("--diff", help="unified diff file, or - for stdin (preview)")
     parser.add_argument("--max", type=int, default=0, help="review.maxChecksPerRequest to simulate (preview)")
     args = parser.parse_args()
 
-    doc, errors = load(args.ruleset)
+    if args.command == "report":
+        if not args.paths:
+            parser.error("report needs at least one report file")
+        return report(args.paths)
+    if len(args.paths) > 1:
+        parser.error(f"{args.command} takes one ruleset")
+    ruleset = args.paths[0] if args.paths else str(DEFAULT)
+
+    doc, errors = load(ruleset)
     if not errors and args.catalog:
         errors = coverage(doc, args.catalog)
     if errors:
-        raise SystemExit(f"{args.ruleset} is invalid:\n  " + "\n  ".join(errors))
+        raise SystemExit(f"{ruleset} is invalid:\n  " + "\n  ".join(errors))
     checks = doc["checks"]
 
     if args.command == "check":

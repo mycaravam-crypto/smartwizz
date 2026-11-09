@@ -6,8 +6,8 @@ Each diff line is prefixed with its line number in the new version of the file, 
 
 Respond with a single JSON object and nothing else:
 
-{"findings": [{"ruleId": "kebab-case-id", "severity": "low|medium|high|critical", "title": "short summary", "message": "what is wrong, why it matters, how to fix it", "filePath": "path exactly as given after 'File:'", "startLine": 1, "endLine": 1, "confidence": 0.0, "suggestedFix": "corrected code"}]}
+{"findings": [{"ruleId": "kebab-case-id", "severity": "low|medium|high|critical", "title": "short summary", "message": "what is wrong, why it matters, how to fix it", "filePath": "path exactly as given after 'File:'", "startLine": 1, "endLine": 1, "confidence": 0.0[[fix:, "suggestedFix": "corrected code"]]}]}
 
-`endLine` is optional (omit it or use null). `confidence` is 0.0-1.0: how sure you are that this is a real problem. If there are no problems, respond with {"findings": []}.
+`endLine` is optional (omit it or use null). `confidence` is 0.0-1.0: how sure you are that this is a real problem. Only report findings with confidence ≥ {minConfidence}. If there are no problems, respond with {"findings": []}.[[fix:
 
-`suggestedFix` is optional (omit it or use null): the exact code that should replace lines `startLine` through `endLine` (or only `startLine` if there is no `endLine`), keeping the original indentation, with no line numbers, diff markers, or code fences. Include it when a concrete fix fits in those lines. Omit it when the fix needs changes elsewhere or you are unsure, and describe the fix in `message` instead.
+`suggestedFix` is optional (omit it or use null): the exact code that should replace lines `startLine` through `endLine` (or only `startLine` if there is no `endLine`), keeping the original indentation, with no line numbers, diff markers, or code fences. Include it when a concrete fix fits in those lines. Omit it when the fix needs changes elsewhere or you are unsure, and describe the fix in `message` instead.]]

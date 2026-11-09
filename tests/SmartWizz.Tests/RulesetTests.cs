@@ -252,6 +252,67 @@ public sealed class RulesetTests
     }
 
     [Fact]
+    public async Task Report_counts_requests_and_kept_findings_per_check()
+    {
+        List<FileDiff> first = Added("src/A.cs", "catch { }", "password = 1");
+        List<FileDiff> second = Added("src/B.cs", "catch { }");
+        int call = 0;
+        var stub = new StubHandler((_, _) => StubHandler.Chat(++call switch
+        {
+            // std-weak-test was not sent, so it is rejected and must not count.
+            1 => """{"findings":[""" + Finding("std-secret", line: 2)[13..^2] + "," + Finding("std-weak-test")[13..^2] + "]}",
+            // The same finding twice is deduplicated and counts once.
+            2 => """{"findings":[""" + Finding("std-swallowed")[13..^2] + "," + Finding("std-swallowed")[13..^2] + "]}",
+            _ => Finding("std-swallowed", "src/B.cs"),
+        }));
+        ReviewConfig cfg = new() { MaxChecksPerRequest = 1, MaxCharsPerRequest = first[0].Annotated.Length };
+        ReviewResult result = await Review.RunAsync([.. first, .. second], cfg, Provider(stub), Prompts, default, Rules);
+
+        // Batch A: secret, then swallowed. Batch B: swallowed. std-weak-test applies to neither.
+        Assert.Equal(3, result.Requests);
+        using var report = System.Text.Json.JsonDocument.Parse(Report.ToJson(result));
+        System.Text.Json.JsonElement checks = report.RootElement.GetProperty("checks");
+        (int, int) Counts(string id) => (checks.GetProperty(id).GetProperty("sent").GetInt32(), checks.GetProperty(id).GetProperty("findings").GetInt32());
+        Assert.Equal((1, 1), Counts("std-secret"));
+        Assert.Equal((2, 2), Counts("std-swallowed"));
+        Assert.Equal((0, 0), Counts("std-weak-test"));
+
+        Assert.DoesNotContain("\"checks\"", Report.ToJson(new ReviewResult()));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Format_prompt_follows_suggest_fixes_and_states_the_confidence_floor(bool suggestFixes)
+    {
+        string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../.."));
+        string template = File.ReadAllText(Path.Combine(root, "prompts", "review-format.md"));
+
+        string prompt = Review.FormatPrompt(template, new ReviewConfig { SuggestFixes = suggestFixes, MinConfidence = 0.65 });
+
+        Assert.Equal(suggestFixes, prompt.Contains("suggestedFix"));
+        Assert.Contains("confidence ≥ 0.65.", prompt);
+        Assert.Contains("\"confidence\": 0.0" + (suggestFixes ? ", \"suggestedFix\"" : "}]}"), prompt);
+        Assert.DoesNotContain("[[fix:", prompt);
+        Assert.DoesNotContain("]]", prompt);
+        Assert.DoesNotContain("{minConfidence}", prompt);
+    }
+
+    [Fact]
+    public async Task Without_suggested_fixes_the_schema_leaves_the_field_out_and_the_scope_changes()
+    {
+        var stub = new StubHandler((_, _) => StubHandler.Chat("""{"findings":[]}"""));
+        await Review.RunAsync(Added("src/A.cs", "x"), new ReviewConfig { SuggestFixes = false }, Provider(stub, jsonSchema: true), Prompts, default);
+        await Review.RunAsync(Added("src/A.cs", "x"), new ReviewConfig(), Provider(stub, jsonSchema: true), Prompts, default);
+
+        Assert.DoesNotContain("suggestedFix", stub.Requests[0].Body);
+        Assert.Contains("suggestedFix", stub.Requests[1].Body);
+        // Program hashes the serialized config into the review scope.
+        Assert.NotEqual(System.Text.Json.JsonSerializer.Serialize(new Config()),
+            System.Text.Json.JsonSerializer.Serialize(new Config { Review = new ReviewConfig { SuggestFixes = false } }));
+    }
+
+    [Fact]
     public void Schema_shaped_replies_with_null_optional_fields_parse()
     {
         var byPath = Added("src/A.cs", "catch { }").ToDictionary(f => f.Path);
