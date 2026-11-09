@@ -133,7 +133,7 @@ public static class Program
         string revalidationPrompt = LoadPrompt("revalidate.md");
         string scopeMaterial = JsonSerializer.Serialize(cfg) + systemPrompt + revalidationPrompt + (catalog?.Sha256 ?? "");
         string reviewScope = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(scopeMaterial)));
-        ReviewCheckpoint? previous = UsableCheckpoint(ReviewCheckpoint.Load(opt.StateIn, Console.Error), opt.Since, reviewScope);
+        ReviewCheckpoint? previous = UsableCheckpoint(ReviewCheckpoint.Load(opt.StateIn, Console.Error), opt.Since);
         // No client-wide timeout: Provider and AzureDevOpsPublisher bound every request with their configured timeout.
         using HttpClient http = new() { Timeout = Timeout.InfiniteTimeSpan };
         Provider provider = new(http, cfg.Provider, Environment.GetEnvironmentVariable("SMARTWIZZ_API_KEY"), log: Console.Error);
@@ -172,15 +172,11 @@ public static class Program
         return Review.ExitCode(next?.UnresolvedFindings ?? result.Findings, opt.FailOn);
     }
 
-    // A checkpoint from another configuration or another baseline is untrusted: fall back to a complete review.
-    static ReviewCheckpoint? UsableCheckpoint(ReviewCheckpoint? state, string? since, string reviewScope)
+    // A checkpoint for another baseline is untrusted: fall back to a complete review.
+    static ReviewCheckpoint? UsableCheckpoint(ReviewCheckpoint? state, string? since)
     {
-        string? problem = state is null ? null
-            : !string.Equals(state.ReviewScopeSha256, reviewScope, StringComparison.Ordinal) ? "review configuration changed"
-            : !string.Equals(state.HeadSha, since, StringComparison.OrdinalIgnoreCase) ? "checkpoint head SHA does not match --since"
-            : null;
-        if (problem is null) return state;
-        Console.Error.WriteLine($"warning: {problem}; running a complete review");
+        if (state is null || string.Equals(state.HeadSha, since, StringComparison.OrdinalIgnoreCase)) return state;
+        Console.Error.WriteLine("warning: checkpoint head SHA does not match --since; running a complete review");
         return null;
     }
 

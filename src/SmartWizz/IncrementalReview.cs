@@ -25,10 +25,13 @@ public static class IncrementalReview
             return new ReviewRun(localPlan, localResult, null);
         }
 
-        ReviewPlan plan = await ReviewPlan.DecideAsync(opt.Repo, opt.Head, opt.Since, opt.StateIn is not null, previous, opt.FullReview, ct);
+        ReviewPlan plan = await ReviewPlan.DecideAsync(opt.Repo, opt.Head, opt.Since, opt.StateIn is not null, previous, reviewScope, opt.FullReview, ct);
         log.WriteLine($"review mode: {plan.Mode.ToString().ToLowerInvariant()} ({plan.Reason})");
         List<FileDiff> files = GitDiff.Parse(await GitDiff.RunIncrementalAsync(opt.Repo, opt.Base!, opt.Head, plan.SinceSha, cfg.ContextLines, ct));
-        ReviewResult result = await Review.RunAsync(files, cfg, provider, prompts.Review, ct, catalog);
+        List<FileDiff> toReview = plan.Mode == ReviewMode.Incremental
+            ? OwnChanges(files, GitDiff.Parse(await GitDiff.RunAsync(opt.Repo, opt.Base!, opt.Head, cfg.ContextLines, ct)))
+            : files;
+        ReviewResult result = await Review.RunAsync(toReview, cfg, provider, prompts.Review, ct, catalog);
         if (opt.StateOut is null)
             return new ReviewRun(plan, result, null);
 
@@ -36,5 +39,21 @@ public static class IncrementalReview
         List<Revalidation.Candidate> candidates = Revalidation.SelectCandidates(previous, result.Findings, files, plan.Mode);
         List<Recheck> rechecks = await Revalidation.RecheckAsync(opt.Repo, headSha, candidates, cfg, provider, prompts.Revalidation, ct);
         return new ReviewRun(plan, result, ReviewCheckpoint.Advance(headSha, reviewScope, previous, result.Findings, rechecks));
+    }
+
+    // since..head also holds whatever merging the base brought in: only lines in the PR's own diff can be reported.
+    // Re-checks keep the whole delta, because a fix can vanish from the PR diff (e.g. deleting a file the PR added).
+    static List<FileDiff> OwnChanges(List<FileDiff> delta, List<FileDiff> prFiles)
+    {
+        var pr = prFiles.ToDictionary(f => f.Path);
+        List<FileDiff> own = [];
+        foreach (FileDiff f in delta)
+        {
+            if (!pr.TryGetValue(f.Path, out FileDiff? prFile)) continue;
+            bool hadAddedLines = f.AddedLines.Count > 0;
+            f.AddedLines.IntersectWith(prFile.AddedLines);
+            if (!hadAddedLines || f.AddedLines.Count > 0) own.Add(f);
+        }
+        return own;
     }
 }

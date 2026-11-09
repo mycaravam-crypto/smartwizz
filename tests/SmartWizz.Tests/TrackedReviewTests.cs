@@ -67,7 +67,7 @@ public sealed class TrackedReviewTests : IDisposable
 
     static readonly string DefectFingerprint = Review.Fingerprint("null-dereference", "a.cs", Defect);
 
-    Task<ReviewRun> Run(string head, ReviewCheckpoint? previous, bool fullReview = false) =>
+    Task<ReviewRun> Run(string head, ReviewCheckpoint? previous, bool fullReview = false, string scope = "scope") =>
         IncrementalReview.RunAsync(
             new Options
             {
@@ -79,7 +79,7 @@ public sealed class TrackedReviewTests : IDisposable
                 StateIn = previous is null ? null : "previous.json",
                 StateOut = "next.json",
             },
-            previous, new ReviewConfig(), _provider, Prompts, "scope", null, TextWriter.Null, default);
+            previous, new ReviewConfig(), _provider, Prompts, scope, null, TextWriter.Null, default);
 
     async Task<ReviewCheckpoint> InitialReview()
     {
@@ -154,6 +154,89 @@ public sealed class TrackedReviewTests : IDisposable
         Assert.Equal("history rewritten", run.Plan.Reason);
         Assert.Single(_recheckRequests);
         Assert.Equal(DefectFingerprint, Assert.Single(run.Checkpoint?.UnresolvedFindings ?? []).Fingerprint);
+    }
+
+    [Fact]
+    public async Task Changed_review_configuration_reviews_everything_and_keeps_open_findings()
+    {
+        ReviewCheckpoint first = await InitialReview();
+        _reviewRequests.Clear();
+        string head = Commit("unrelated", ("c.cs", ClassWith("    int Y() => 1;", "C")));
+        _reviews.Enqueue(Reply(NoFindings)); // a nondeterministic model misses the old defect this time
+        _rechecks.Enqueue(Verdict(DefectFingerprint, "open"));
+
+        ReviewRun run = await Run(head, first, scope: "new-scope");
+
+        Assert.Equal(ReviewMode.Full, run.Plan.Mode);
+        Assert.Equal("review configuration changed", run.Plan.Reason);
+        Assert.Contains("int X(Input input)", Assert.Single(_reviewRequests));
+        Assert.Single(_recheckRequests);
+        ReviewCheckpoint next = run.Checkpoint ?? throw new InvalidOperationException("no checkpoint");
+        Assert.Equal(DefectFingerprint, Assert.Single(next.UnresolvedFindings).Fingerprint);
+        Assert.Equal("new-scope", next.ReviewScopeSha256);
+    }
+
+    void MergeMainIntoFeature(string baseMessage, params (string Path, string? Content)[] baseFiles)
+    {
+        IncrementalGitTests.Git(_dir, "checkout", "main");
+        Commit(baseMessage, baseFiles);
+        IncrementalGitTests.Git(_dir, "checkout", "feature");
+        IncrementalGitTests.Git(_dir, "merge", "--no-edit", "main");
+    }
+
+    [Fact]
+    public async Task Merging_the_base_does_not_review_files_only_the_base_changed()
+    {
+        ReviewCheckpoint first = await InitialReview();
+        _reviewRequests.Clear();
+        MergeMainIntoFeature("base moved", ("base.cs", ClassWith("    int FromBase() => 1;", "Base")));
+        string head = Commit("PR work", ("b.cs", ClassWith("    int Mine() => 2;", "B")));
+        _reviews.Enqueue(Reply(NoFindings));
+
+        ReviewRun run = await Run(head, first);
+
+        Assert.Equal(ReviewMode.Incremental, run.Plan.Mode);
+        string request = Assert.Single(_reviewRequests);
+        Assert.Contains("Mine", request);
+        Assert.DoesNotContain("FromBase", request);
+        Assert.DoesNotContain("base.cs", request);
+    }
+
+    [Fact]
+    public async Task Merging_the_base_rejects_findings_on_lines_the_base_added_to_a_shared_file()
+    {
+        string[] lines = [.. Enumerable.Range(1, 30).Select(i => $"line {i}")];
+        string Shared(string first, string last) => string.Join('\n', [first, .. lines[1..^1], last]) + "\n";
+        MergeMainIntoFeature("add shared file", ("shared.txt", Shared("line 1", "line 30")));
+        ReviewCheckpoint baseline = await InitialReview();
+        Commit("PR edits the top", ("shared.txt", Shared("mine", "line 30")));
+        MergeMainIntoFeature("base edits the bottom", ("shared.txt", Shared("line 1", "theirs")));
+        string head = IncrementalGitTests.Sha(_dir);
+        _reviews.Enqueue(Reply("""
+            {"findings":[
+              {"ruleId":"r","severity":"high","title":"mine","message":"m","filePath":"shared.txt","startLine":1,"confidence":0.9},
+              {"ruleId":"r","severity":"high","title":"theirs","message":"m","filePath":"shared.txt","startLine":30,"confidence":0.9}]}
+            """));
+
+        ReviewRun run = await Run(head, baseline);
+
+        Assert.Equal(ReviewMode.Incremental, run.Plan.Mode);
+        Assert.Equal("mine", Assert.Single(run.Result.Findings).Title);
+        Assert.Single(run.Result.Rejected);
+    }
+
+    [Fact]
+    public async Task Fix_that_removes_a_file_the_pr_added_still_resolves_after_a_base_merge()
+    {
+        ReviewCheckpoint first = await InitialReview();
+        _reviewRequests.Clear();
+        MergeMainIntoFeature("base moved", ("base.cs", ClassWith("    int FromBase() => 1;", "Base")));
+        string head = Commit("drop the file", ("a.cs", null));
+
+        ReviewRun run = await Run(head, first);
+
+        Assert.Empty(_reviewRequests);
+        Assert.Empty(run.Checkpoint?.UnresolvedFindings ?? throw new InvalidOperationException("no checkpoint"));
     }
 
     [Fact]

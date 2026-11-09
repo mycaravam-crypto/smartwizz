@@ -178,7 +178,7 @@ Without `--since`, SmartWizz reviews the full PR diff. With `--since <40-charact
 - **resolved**: a re-check of the *current* code confirmed the fix, or the file no longer exists. A finding is never resolved just because a rerun did not report it again.
 - **regressed**: reported again after it was resolved. It counts toward the gate like an open finding.
 
-On each run, earlier unresolved findings that were not reported again are re-checked if their file changed (after a complete review, all of them are). The re-check sends the model the finding and the current code around it, using a separate prompt (`prompts/revalidate.md`). Only an explicit, explained `resolved` verdict resolves a finding. Missing, contradictory or unknown verdicts keep it open, and malformed output fails the run. Findings in untouched files are carried forward without a model call.
+On each run, earlier unresolved findings that were not reported again are re-checked if their file changed (after a complete review, all of them are). The re-check sends the model the finding and the current code around it, using a separate prompt (`prompts/revalidate.md`). Only an explicit, explained `resolved` verdict resolves a finding. Missing, contradictory or unknown verdicts keep it open, and malformed output fails the run. Findings in untouched files are carried forward without a model call. Changes that only arrived by merging the base into the PR are not reviewed.
 
 SmartWizz runs a complete review instead of an incremental one when:
 
