@@ -29,10 +29,11 @@ public sealed class ReviewResult
     public List<Finding> Findings { get; set; } = [];
     public List<SkippedFile> SkippedFiles { get; } = [];
     public List<string> Rejected { get; } = [];
+    public string? RulesetName { get; set; }
     public string? RulesetVersion { get; set; }
     public string? RulesetSha256 { get; set; }
-    // Standard checks that applied to a batch but exceeded review.maxStandardChecksPerRequest.
-    public List<string> OmittedStandardChecks { get; } = [];
+    // Provider calls made; more than the number of batches means standard checks needed extra passes.
+    public int Requests { get; set; }
     public long SystemPromptCharacters { get; set; }
     public long UserPromptCharacters { get; set; }
     public long? PromptTokens { get; set; }
@@ -42,9 +43,10 @@ public sealed class ReviewResult
 public static partial class Review
 {
     public static async Task<ReviewResult> RunAsync(
-        List<FileDiff> files, ReviewConfig cfg, Provider provider, string systemPrompt, CancellationToken ct, RuleCatalog? catalog = null)
+        List<FileDiff> files, ReviewConfig cfg, Provider provider, string systemPrompt, CancellationToken ct,
+        Ruleset? ruleset = null, string? standardsPrompt = null)
     {
-        var result = new ReviewResult { RulesetVersion = catalog?.Version, RulesetSha256 = catalog?.Sha256 };
+        var result = new ReviewResult { RulesetName = ruleset?.Name, RulesetVersion = ruleset?.Version, RulesetSha256 = ruleset?.Sha256 };
         var batches = new List<List<FileDiff>>();
         var batch = new List<FileDiff>();
         int size = 0;
@@ -80,23 +82,42 @@ public static partial class Review
         // Sequential on purpose: keeps request rate and provider quota use predictable.
         foreach (List<FileDiff> b in batches)
         {
-            RuleSelection? selected = catalog?.Select(b, cfg.MaxStandardChecksPerRequest);
-            string prompt = selected is null ? systemPrompt : RuleCatalog.BuildPrompt(systemPrompt, selected);
-            foreach (string omitted in selected?.Omitted ?? [])
-                if (!result.OmittedStandardChecks.Contains(omitted)) result.OmittedStandardChecks.Add(omitted);
             string userMessage = BuildUserMessage(b, files.Select(f => f.Path));
-            result.SystemPromptCharacters += prompt.Length;
-            result.UserPromptCharacters += userMessage.Length;
-            Completion reply = await provider.CompleteAsync(prompt, userMessage, ct);
-            if (reply.PromptTokens is { } inputTokens && reply.CompletionTokens is { } outputTokens)
+            var byPath = b.ToDictionary(f => f.Path);
+            if (ruleset is null)
             {
-                promptTokens += inputTokens;
-                completionTokens += outputTokens;
+                all.AddRange(await AskAsync(systemPrompt, null, false));
             }
-            else completeUsage = false;
-            if (!result.Models.Contains(reply.Model)) result.Models.Add(reply.Model);
-            all.AddRange(Parse(reply.Content, b.ToDictionary(f => f.Path), cfg.MinConfidence, result.Rejected, selected?.AllowedIds));
+            else
+            {
+                // Pass 1 is the normal review plus the most important checks; further passes check only the rest,
+                // so a small model never sees more than review.maxChecksPerRequest checks at once.
+                List<List<Ruleset.Check>> passes = Ruleset.Passes(ruleset.Select(b), cfg.MaxChecksPerRequest);
+                for (int pass = 0; pass < passes.Count; pass++)
+                {
+                    bool general = pass == 0;
+                    string prompt = Ruleset.BuildPrompt(general ? systemPrompt : standardsPrompt ?? systemPrompt, passes[pass], general);
+                    var ids = passes[pass].ToDictionary(c => c.Id, c => c.Id, StringComparer.OrdinalIgnoreCase);
+                    all.AddRange(await AskAsync(prompt, ids, !general));
+                }
+            }
             result.ReviewedFiles += b.Count;
+
+            async Task<List<Finding>> AskAsync(string prompt, Dictionary<string, string>? standardIds, bool standardsOnly)
+            {
+                result.SystemPromptCharacters += prompt.Length;
+                result.UserPromptCharacters += userMessage.Length;
+                result.Requests++;
+                Completion reply = await provider.CompleteAsync(prompt, userMessage, ct);
+                if (reply.PromptTokens is { } inputTokens && reply.CompletionTokens is { } outputTokens)
+                {
+                    promptTokens += inputTokens;
+                    completionTokens += outputTokens;
+                }
+                else completeUsage = false;
+                if (!result.Models.Contains(reply.Model)) result.Models.Add(reply.Model);
+                return Parse(reply.Content, byPath, cfg.MinConfidence, result.Rejected, standardIds, standardsOnly);
+            }
         }
 
         result.Findings = Dedupe(all);
@@ -143,7 +164,7 @@ public static partial class Review
 
     public static List<Finding> Parse(
         string reply, IReadOnlyDictionary<string, FileDiff> files, double minConfidence, List<string> rejected,
-        IReadOnlyDictionary<string, string>? standardIds = null)
+        IReadOnlyDictionary<string, string>? standardIds = null, bool standardsOnly = false)
     {
         // Tolerates prose or ```json fences around the object.
         int start = reply.IndexOf('{'), end = reply.LastIndexOf('}');
@@ -164,7 +185,7 @@ public static partial class Review
             var list = new List<Finding>();
             foreach (JsonElement e in arr.EnumerateArray())
             {
-                Finding? f = Validate(e, files, minConfidence, standardIds, out string? reason);
+                Finding? f = Validate(e, files, minConfidence, standardIds, standardsOnly, out string? reason);
                 if (f is null) rejected.Add(reason);
                 else list.Add(f);
             }
@@ -173,7 +194,7 @@ public static partial class Review
     }
 
     static Finding? Validate(JsonElement e, IReadOnlyDictionary<string, FileDiff> files, double minConfidence,
-        IReadOnlyDictionary<string, string>? standardIds, out string reason)
+        IReadOnlyDictionary<string, string>? standardIds, bool standardsOnly, out string reason)
     {
         reason = "";
         if (e.ValueKind != JsonValueKind.Object) return Reject(out reason, "finding is not an object");
@@ -206,13 +227,12 @@ public static partial class Review
             return Reject(out reason, $"{path}:{start}: below minConfidence");
 
         ruleId = Sanitize(ruleId, false);
-        // Standard findings are reported under the catalog rule, whatever check ID the model used.
-        if (standardIds is not null && (ruleId.StartsWith("standard-", StringComparison.OrdinalIgnoreCase)
-            || ruleId.StartsWith("std-", StringComparison.OrdinalIgnoreCase)))
+        // Only checks sent in this request count; a standards-only pass reports nothing else.
+        if (standardIds is not null && (standardsOnly || ruleId.StartsWith("std-", StringComparison.OrdinalIgnoreCase)))
         {
-            if (!standardIds.TryGetValue(ruleId, out string? reported))
+            if (!standardIds.TryGetValue(ruleId, out string? canonical))
                 return Reject(out reason, $"{path}:{start}: unknown or inapplicable standard ruleId {ruleId}");
-            ruleId = reported;
+            ruleId = canonical;
         }
         // Optional: a malformed suggestion never costs the finding itself.
         string? fix = e.TryGetProperty("suggestedFix", out JsonElement s) && s.ValueKind == JsonValueKind.String ? CleanCode(s.GetString()!) : null;

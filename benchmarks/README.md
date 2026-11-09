@@ -21,7 +21,7 @@ The ground truth should **not** be included in the defective PR. Only seed cases
 - **False negatives** = seeded cases not matched.
 - Record exact model, configuration, commit SHA, ruleset version and SHA-256, plus review time and manual adjudication. Repeat runs to quantify nondeterminism; use the same pinned model/config/fixture for controlled before/after comparisons.
 
-The canonical versioned rules live in [rules/engineering-rules.json](../rules/engineering-rules.json). Only `detection: "llm"` rules participate in LLM standard checks; `static` and `manual` rules are verified through other gates. The 16-defect corpus deliberately includes generic bugs plus coding-rule violations, including defects that could also be detected statically. Report the total-seeded denominator and any subset exclusions transparently when comparing reviewer versions.
+The canonical versioned rules live in [rules/engineering-rules.json](../rules/engineering-rules.json). Only `detection: "llm"` rules participate in LLM standard checks, through [rulesets/engineering-standard.json](../rulesets/engineering-standard.json); `static` and `manual` rules are verified through other gates. The 16-defect corpus deliberately includes generic bugs plus coding-rule violations, including defects that could also be detected statically. Report the total-seeded denominator and any subset exclusions transparently when comparing reviewer versions.
 
 The corpus samples representative objective violations but does not exhaust every normative requirement. In particular, architectural simplicity, DRY, naming and workflow quality involve context-sensitive human judgment. Style findings may be suppressed by the default reviewer instruction and should not be confused with compiler enforcement.
 

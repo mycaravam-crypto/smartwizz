@@ -12,9 +12,8 @@
     "contextLines": 10,
     "maxCharsPerRequest": 60000,
     "minConfidence": 0.5,
-    "guidelines": "rules/engineering-rules.json", // optional; relative to this config file. Remove if you have none.
-    "llmChecks": "rules/llm-checks.json", // optional: aggregated, trigger-gated checks instead of raw catalog rules
-    "maxStandardChecksPerRequest": 0 // 0 = no limit; e.g. 8 for small local models (highest severity kept)
+    "ruleset": "rulesets/engineering-standard.json", // coding guide to check against; relative to this file. Remove for bugs/security only.
+    "maxChecksPerRequest": 0 // 0 = all checks with the review; e.g. 8 for small models (the rest go to extra requests)
     // "exclude": ["*.lock", "*.min.js", "*/Migrations/*"]  -- replaces the built-in list
   },
   "azureDevOps": {

@@ -76,7 +76,7 @@ dotnet tool update --global --add-source src/SmartWizz/bin/Release MyCaravam.Sma
 ```sh
 conf="${XDG_CONFIG_HOME:-$HOME/.config}/smartwizz"
 mkdir -p "$conf"
-cp -r smartwizz.json rules "$conf/"
+cp -r smartwizz.json rulesets "$conf/"
 cp .env.example "$conf/.env"
 chmod 600 "$conf/.env"
 ```
@@ -89,7 +89,7 @@ Then set `SMARTWIZZ_API_KEY` in `$conf/.env`, and edit `$conf/smartwizz.json` if
 smartwizz check
 ```
 
-**Update:** pull, then repeat step 1. The version comes from the commit count, so commit local changes first; at an unchanged version the update does nothing. Step 2 is not needed again, but copy `rules/` again if you want newer rules.
+**Update:** pull, then repeat step 1. The version comes from the commit count, so commit local changes first; at an unchanged version the update does nothing. Step 2 is not needed again, but copy `rulesets/` again if you want newer rules.
 
 **Uninstall:** `dotnet tool uninstall --global MyCaravam.SmartWizz`, and delete the config directory if you no longer need it.
 
@@ -202,9 +202,9 @@ See [`smartwizz.example.json`](smartwizz.example.json). Notable settings:
 - `review.exclude` — glob patterns matched against path and file name; replaces the built-in list (lockfiles, minified, generated, migrations).
 - `provider.temperature` — `null` to omit for models that reject it.
 - `provider.maxRetries` (default 2) and `provider.fallbackModels` (default none) — see *Overload handling* below.
-- `review.guidelines` — path (relative to the config file) to a trusted versioned [JSON engineering rule catalog](rules/README.md) (`rules/engineering-rules.json`, default) or legacy Markdown standard. Only applicable LLM rules are injected per request batch. JSON standards enforce an exact `standard-*` rule ID allowlist and record `rulesetVersion` / `rulesetSha256` in the report. Keep this file in the trusted SmartWizz checkout in CI, never the untrusted PR.
-- `review.llmChecks` — optional path (relative to the config file) to [`rules/llm-checks.json`](rules/README.md#llm-checks): the catalog's LLM rules aggregated into short checks that are sent only when a trigger matches an added line. Recommended for small local models. Requires a JSON `guidelines` catalog.
-- `review.maxStandardChecksPerRequest` — `0` (default) sends every applicable standard check; a positive number keeps only that many per request, highest severity first. Dropped checks are listed in the console and as `omittedStandardChecks` in the JSON report.
+- `review.ruleset` — path (relative to the config file) to the [ruleset](rulesets/README.md) of the coding guide to check compliance with (default `rulesets/engineering-standard.json`). One file per guide: point this at another file to review against another guide. Only checks whose triggers match the added lines are sent; findings may only use the IDs of checks sent in that request. The report records `rulesetName`, `rulesetVersion` and `rulesetSha256`. Keep the file in the trusted SmartWizz checkout in CI, never the untrusted PR.
+- `review.maxChecksPerRequest` — `0` (default) sends all applicable checks with the review. A positive number sends at most that many per request, highest severity first; the rest go to extra standards-only requests over the same diff. Nothing is dropped. `requests` in the JSON report counts the calls.
+- `review.guidelines` — legacy alternative to `ruleset`: a Markdown guide pasted whole into the prompt. Only sensible for large models; not combinable with `ruleset`.
 
 Secrets are read only from the environment. For local runs you can put them in a git-ignored `./.env` (see [`.env.example`](.env.example)). Variables that are already set take precedence.
 
@@ -283,6 +283,32 @@ Any server that speaks the OpenAI chat-completions format works: vLLM, Ollama, L
 - **Proxy:** `HTTPS_PROXY` / `NO_PROXY` are honoured. Internal hosts usually belong in `NO_PROXY`.
 - **Plain HTTP:** works, but SmartWizz warns, because code and key travel unencrypted.
 - **Network reach:** the machine running SmartWizz must reach the endpoint. In GitHub that means a self-hosted runner (see below); GitHub-hosted runners can't see your internal network.
+
+## Small local models
+
+SmartWizz is built to work with local models below ~30B parameters. [`smartwizz.local.example.json`](smartwizz.local.example.json) is a starting point:
+
+```json
+{
+  "provider": { "endpoint": "http://localhost:11434/v1/chat/completions", "model": "your-local-model", "timeoutSeconds": 600 },
+  "review": {
+    "ruleset": "rulesets/engineering-standard.json",
+    "maxChecksPerRequest": 8,
+    "maxCharsPerRequest": 16000,
+    "contextLines": 5
+  }
+}
+```
+
+What each piece does for a small model:
+
+- **The ruleset** sends only checks whose triggers match the change, as short instructions with a Bad/Good example. A small change usually gets 0–3 checks instead of the whole guide.
+- **`maxChecksPerRequest`** keeps each prompt to a few checks. Larger changes get extra standards-only requests rather than one long list the model half-follows. A batch takes `applicable checks ÷ 8` requests, rounded up (at most 4 with the default ruleset).
+- **`maxCharsPerRequest` / `contextLines`** keep the diff small enough for the context window. One request is roughly the system prompt (~2.5k characters plus ~450 per check) plus the diff batch.
+- **Context window:** make sure the server gives the model enough context, or it silently drops the start of the prompt. With the values above, allow at least 8k tokens. Ollama is configured by `OLLAMA_CONTEXT_LENGTH` or the model's `num_ctx`; the chat-completions API cannot set it.
+- **Output:** the model must answer with JSON. If a model often fails (`[invalid-model-output]`), try a larger or code-tuned model before loosening anything else.
+
+Measure on your own model with the [benchmark](benchmarks/README.md) before relying on it. `tools/ruleset.py preview` shows what a diff will send.
 
 ## GitHub
 
@@ -366,14 +392,14 @@ Same checks as CI (`.github/workflows/ci.yml`):
 
 ```sh
 python3 tools/engineering_rules.py --check  # generated Markdown has not drifted
-python3 tools/llm_checks.py --check         # LLM checks cover every llm rule exactly once
+python3 tools/ruleset.py check --catalog rules/engineering-rules.json  # ruleset valid and covers every llm rule
 dotnet format --verify-no-changes   # whitespace + .editorconfig style; run `dotnet format` to fix
 dotnet build -c Release             # analyzers + code style enforced, warnings are errors
 dotnet test -c Release
 ```
 
 - `global.json` pins the SDK.
-- `rules/engineering-rules.json` contains stable IDs, enforcement type, severity, language scopes and optional examples/exceptions. The LLM receives only applicable rules, while mechanical rules belong in compiler, analyzer and linter checks. Catalog version and SHA-256 identify each benchmark run.
+- `rules/engineering-rules.json` is the human-facing engineering standard (it generates `ENGINEERING_STANDARD.md`). The model sees its `llm` rules only through `rulesets/engineering-standard.json`; mechanical rules belong in compiler, analyzer and linter checks. Ruleset name, version and SHA-256 identify each benchmark run.
 - `.editorconfig` encodes the mechanical rules of [`ENGINEERING_STANDARD.md`](ENGINEERING_STANDARD.md): explicit types unless obvious, no unused code, readonly fields.
 - Tests stub all HTTP and need no credentials. They make no live model or Azure DevOps calls.
 - One test starts a fake `git` (Linux only) to prove cancellation kills the git process.

@@ -209,24 +209,26 @@ public class GuidelinesTests
     }
 
     [Fact]
-    public void Llm_checks_resolve_relative_to_config_and_require_a_json_catalog()
+    public void Ruleset_resolves_relative_to_config_and_excludes_json_guidelines()
     {
         string dir = Directory.CreateTempSubdirectory().FullName;
         try
         {
             string cfgPath = Path.Combine(dir, "smartwizz.json");
-            File.WriteAllText(Path.Combine(dir, "STANDARD.md"), "rules");
-            File.WriteAllText(Path.Combine(dir, "rules.json"), "{}");
-            File.WriteAllText(cfgPath, """{ "review": { "guidelines": "STANDARD.md", "llmChecks": "checks.json" } }""");
+            File.WriteAllText(cfgPath, """{ "review": { "ruleset": "guide.json" } }""");
             Assert.Throws<SmartWizzException>(() => Config.Load(cfgPath, _ => null));
 
-            File.WriteAllText(cfgPath, """{ "review": { "guidelines": "rules.json", "llmChecks": "checks.json" } }""");
-            Assert.Throws<SmartWizzException>(() => Config.Load(cfgPath, _ => null));
+            File.WriteAllText(Path.Combine(dir, "guide.json"), "{}");
+            Assert.Equal(Path.Combine(dir, "guide.json"), Config.Load(cfgPath, _ => null).Review.Ruleset);
 
-            File.WriteAllText(Path.Combine(dir, "checks.json"), "{}");
-            Assert.Equal(Path.Combine(dir, "checks.json"), Config.Load(cfgPath, _ => null).Review.LlmChecks);
+            File.WriteAllText(Path.Combine(dir, "GUIDE.md"), "rules");
+            File.WriteAllText(cfgPath, """{ "review": { "ruleset": "guide.json", "guidelines": "GUIDE.md" } }""");
+            Assert.Contains("not both", Assert.Throws<SmartWizzException>(() => Config.Load(cfgPath, _ => null)).Message);
 
-            File.WriteAllText(cfgPath, """{ "review": { "maxStandardChecksPerRequest": -1 } }""");
+            File.WriteAllText(cfgPath, """{ "review": { "guidelines": "guide.json" } }""");
+            Assert.Contains("review.ruleset", Assert.Throws<SmartWizzException>(() => Config.Load(cfgPath, _ => null)).Message);
+
+            File.WriteAllText(cfgPath, """{ "review": { "maxChecksPerRequest": -1 } }""");
             Assert.Throws<SmartWizzException>(() => Config.Load(cfgPath, _ => null));
         }
         finally { Directory.Delete(dir, true); }

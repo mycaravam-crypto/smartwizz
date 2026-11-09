@@ -1,6 +1,7 @@
 namespace SmartWizz;
 
-public sealed record ReviewPrompts(string Review, string Revalidation);
+// Standards is the base prompt for follow-up passes that check only ruleset checks.
+public sealed record ReviewPrompts(string Review, string Revalidation, string Standards);
 
 public sealed record ReviewRun(ReviewPlan Plan, ReviewResult Result, ReviewCheckpoint? Checkpoint);
 
@@ -12,7 +13,7 @@ public static class IncrementalReview
         : GitDiff.RunUncommittedAsync(opt.Repo, contextLines, ct);
 
     public static async Task<ReviewRun> RunAsync(Options opt, ReviewCheckpoint? previous, ReviewConfig cfg, Provider provider,
-        ReviewPrompts prompts, string reviewScope, RuleCatalog? catalog, TextWriter log, CancellationToken ct)
+        ReviewPrompts prompts, string reviewScope, Ruleset? ruleset, TextWriter log, CancellationToken ct)
     {
         if (opt.Staged || opt.Check)
         {
@@ -21,7 +22,7 @@ public static class IncrementalReview
             if (!opt.Staged && await GitDiff.ListUntrackedAsync(opt.Repo, ct) is { Count: > 0 } untracked)
                 log.WriteLine($"note: untracked, not reviewed (`git add -N <path>` includes them): {string.Join(", ", untracked)}");
             List<FileDiff> localFiles = GitDiff.Parse(await LocalDiffAsync(opt, cfg.ContextLines, ct));
-            ReviewResult localResult = await Review.RunAsync(localFiles, cfg, provider, prompts.Review, ct, catalog);
+            ReviewResult localResult = await Review.RunAsync(localFiles, cfg, provider, prompts.Review, ct, ruleset, prompts.Standards);
             return new ReviewRun(localPlan, localResult, null);
         }
 
@@ -31,7 +32,7 @@ public static class IncrementalReview
         List<FileDiff> toReview = plan.Mode == ReviewMode.Incremental
             ? OwnChanges(files, GitDiff.Parse(await GitDiff.RunAsync(opt.Repo, opt.Base!, opt.Head, cfg.ContextLines, ct)))
             : files;
-        ReviewResult result = await Review.RunAsync(toReview, cfg, provider, prompts.Review, ct, catalog);
+        ReviewResult result = await Review.RunAsync(toReview, cfg, provider, prompts.Review, ct, ruleset, prompts.Standards);
         if (opt.StateOut is null)
             return new ReviewRun(plan, result, null);
 
