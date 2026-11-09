@@ -8,6 +8,6 @@
     ]
   },
   "review": {
-    "guidelines": "rules/engineering-rules.json"
+    "ruleset": "rulesets/engineering-standard.json"
   }
 }

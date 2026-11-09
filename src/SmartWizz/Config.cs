@@ -28,11 +28,23 @@ public sealed class Config
             throw new SmartWizzException(FailureKind.Configuration, $"config file not found: {path}");
 
         // Relative to the config file, so CI resolves it inside the trusted SmartWizz checkout, not the PR.
+        string configDir = Path.GetDirectoryName(Path.GetFullPath(path ?? "smartwizz.json"))!;
         if (cfg.Review.Guidelines is { } g)
         {
-            cfg.Review.Guidelines = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path ?? "smartwizz.json"))!, g);
+            if (Path.GetExtension(g).Equals(".json", StringComparison.OrdinalIgnoreCase))
+                throw new SmartWizzException(FailureKind.Configuration,
+                    "review.guidelines takes a Markdown guide; JSON rules go in review.ruleset (see rulesets/README.md)");
+            if (cfg.Review.Ruleset is not null)
+                throw new SmartWizzException(FailureKind.Configuration, "set review.ruleset or review.guidelines, not both");
+            cfg.Review.Guidelines = Path.Combine(configDir, g);
             if (!File.Exists(cfg.Review.Guidelines))
                 throw new SmartWizzException(FailureKind.Configuration, $"guidelines file not found: {cfg.Review.Guidelines}");
+        }
+        if (cfg.Review.Ruleset is { } r)
+        {
+            cfg.Review.Ruleset = Path.Combine(configDir, r);
+            if (!File.Exists(cfg.Review.Ruleset))
+                throw new SmartWizzException(FailureKind.Configuration, $"ruleset file not found: {cfg.Review.Ruleset}");
         }
 
         // Lets CI point at an internal endpoint/model without a separate config file.
@@ -70,6 +82,7 @@ public sealed class Config
             : cfg.Review.ContextLines < 0 ? "review.contextLines must not be negative"
             : cfg.Review.MaxCharsPerRequest <= 0 ? "review.maxCharsPerRequest must be greater than 0"
             : cfg.Review.MinConfidence is < 0 or > 1 ? "review.minConfidence must be between 0 and 1"
+            : cfg.Review.MaxChecksPerRequest < 0 ? "review.maxChecksPerRequest must not be negative"
             : null;
         if (error is not null)
             throw new SmartWizzException(FailureKind.Configuration, error);
@@ -124,8 +137,13 @@ public sealed class ReviewConfig
     public int ContextLines { get; set; } = 10;
     public int MaxCharsPerRequest { get; set; } = 60_000;
     public double MinConfidence { get; set; } = 0.5;
-    // Optional markdown engineering standard checked in addition to bugs/security/tests.
+    // Coding guide to check compliance with, as a ruleset file (rulesets/README.md). Swap the file to swap the guide.
+    public string? Ruleset { get; set; }
+    // Legacy alternative to Ruleset: a whole Markdown guide pasted into the prompt. Fine for large models only.
     public string? Guidelines { get; set; }
+    // 0 = all applicable checks in one request. Otherwise checks beyond this many go to extra passes over the
+    // same diff, highest severity first: small models follow a few checks far better than many.
+    public int MaxChecksPerRequest { get; set; }
     public string[] Exclude { get; set; } =
     [
         "*.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "packages.lock.json",

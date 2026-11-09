@@ -1,0 +1,634 @@
+{
+  "schemaVersion": 1,
+  "name": "Production Engineering Standard",
+  "version": "1.0.0",
+  "fileGroups": {
+    "code": [
+      "*.cs",
+      "*.ts",
+      "*.tsx",
+      "*.js",
+      "*.jsx",
+      "*.mjs",
+      "*.cjs",
+      "*.py",
+      "*.go",
+      "*.java",
+      "*.rs",
+      "*.kt",
+      "*.sh",
+      "*.ps1"
+    ],
+    "config": [
+      "*.json",
+      "*.yaml",
+      "*.yml",
+      "*.toml",
+      "*.csproj",
+      "*.props",
+      "*.targets"
+    ],
+    "cs": [
+      "*.cs"
+    ],
+    "ts": [
+      "*.ts",
+      "*.tsx"
+    ],
+    "tests": [
+      "*Tests.cs",
+      "*Test.cs",
+      "*.test.ts",
+      "*.test.tsx",
+      "*.test.js",
+      "*.spec.ts",
+      "*.spec.tsx",
+      "*.spec.js",
+      "test_*.py",
+      "*_test.py",
+      "*_test.go",
+      "*Test.java",
+      "*Test.kt",
+      "tests/*",
+      "*/tests/*",
+      "test/*",
+      "*/test/*"
+    ]
+  },
+  "checks": [
+    {
+      "id": "std-swallowed-exception",
+      "severity": "medium",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "\\bcatch\\b|\\bexcept\\b|\\brecover\\(\\)"
+      ],
+      "check": "A catch/except block must handle the error, add context and rethrow, or log it with context. An empty block or one that silently returns a default is a violation.",
+      "bad": "catch (Exception) { return 0; }",
+      "good": "catch (IOException ex) { throw new ReviewException(\"Read failed\", ex); }",
+      "refs": [
+        "standard-4-1-05"
+      ]
+    },
+    {
+      "id": "std-lost-exception-cause",
+      "severity": "medium",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "\\bthrow\\b|\\braise\\b|\\bpanic\\(",
+        "(Exception|Error)\\("
+      ],
+      "check": "When rethrowing or wrapping an error with more context, keep the original as the inner exception or cause. In C# rethrow with `throw;`, not `throw ex;`.",
+      "bad": "catch (IOException ex) { throw new ConfigException(\"bad config\"); }",
+      "good": "catch (IOException ex) { throw new ConfigException(\"bad config\", ex); }",
+      "refs": [
+        "standard-4-1-07"
+      ]
+    },
+    {
+      "id": "std-exception-control-flow",
+      "severity": "medium",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "\\bcatch\\b|\\bexcept\\b|\\brecover\\(\\)",
+        "\\bthrow\\b|\\braise\\b|\\bpanic\\("
+      ],
+      "check": "Use exceptions only for unexpected failures. For expected outcomes the caller must handle (not found, invalid input), return a result or use a Try method instead of throwing and catching to steer normal flow.",
+      "bad": "try { id = int.Parse(text); } catch (FormatException) { return NotFound(); }",
+      "good": "if (!int.TryParse(text, out int id)) return NotFound();",
+      "refs": [
+        "standard-2-3-05",
+        "standard-4-1-03",
+        "standard-4-1-04"
+      ]
+    },
+    {
+      "id": "std-leaked-error-details",
+      "severity": "high",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "StackTrace|\\.stack\\b|traceback|format_exc|exc_info",
+        "\\b(ex|e|err|exception)\\.(ToString\\(\\)|Message\\b|message\\b)",
+        "\\b(res|response|Response|Results|reply)\\b.*\\b(send|json|Write|Problem|status)"
+      ],
+      "check": "Do not return stack traces, exception dumps, secrets, or internal details (file paths, SQL, hosts) to external callers or end users. Log them internally and return a generic message.",
+      "bad": "return Results.Problem(ex.ToString());",
+      "good": "logger.LogError(ex, \"Import failed\"); return Results.Problem(\"Import failed\");",
+      "refs": [
+        "standard-4-1-06"
+      ]
+    },
+    {
+      "id": "std-secret-in-logs",
+      "severity": "high",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "(?i)(log|print|console|trace|debug|info|warn|write).*(password|passwd|secret|token|api[_-]?key|credential|authorization|bearer|cookie)"
+      ],
+      "check": "Never log or print passwords, tokens, API keys, auth headers, cookies, or unnecessary personal data. Log an identifier or a redacted value instead.",
+      "bad": "logger.LogInformation(\"Login {User} {Password}\", user, password);",
+      "good": "logger.LogInformation(\"Login {User}\", user);",
+      "refs": [
+        "standard-2-3-03"
+      ]
+    },
+    {
+      "id": "std-unstructured-logging",
+      "severity": "low",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "Console\\.Write|console\\.(log|info|warn|error)|\\bprint\\(|fmt\\.Print|System\\.(out|err)\\.print|println!",
+        "\\.Log\\w*\\(\\s*\\$\\\"|\\blog\\w*\\.\\w+\\(\\s*f[\\\"']|\\blogger\\.\\w+\\(\\s*`"
+      ],
+      "check": "Report operational events through the project's logging abstraction with a message template and named values, not Console/print output or string-interpolated log messages.",
+      "bad": "logger.LogInformation($\"Processed {count} files\");",
+      "good": "logger.LogInformation(\"Processed {Count} files\", count);",
+      "allowed": [
+        "Output that is the program's user-facing CLI result or error message"
+      ],
+      "refs": [
+        "standard-2-3-02",
+        "standard-9-cs-08"
+      ]
+    },
+    {
+      "id": "std-commented-out-code",
+      "severity": "medium",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "^\\s*(//|#|/\\*|\\*)\\s*\\S.*([;{}]|\\)|=\\s*\\S.*)\\s*$",
+        "(?i)(//|#|/\\*).*\\b(remove (this|later|me)|delete (this|later|me)|hack|temporary|temp fix|old (code|version)|no longer used)\\b"
+      ],
+      "check": "Do not add commented-out code, obsolete notes, or temporary annotations such as 'remove later' or 'hack'. Delete dead code; version control keeps the history.",
+      "bad": "// var old = LoadLegacy(path);",
+      "good": "(delete the line)",
+      "refs": [
+        "standard-2-2-02",
+        "standard-2-4-02"
+      ]
+    },
+    {
+      "id": "std-untracked-todo",
+      "severity": "low",
+      "files": [
+        "@code",
+        "@config"
+      ],
+      "triggers": [
+        "(?i)\\b(TODO|FIXME|HACK|XXX)\\b"
+      ],
+      "check": "A TODO or FIXME must say what is needed and reference a tracking item (issue or ticket ID or URL).",
+      "bad": "// TODO fix this",
+      "good": "// TODO(#142): handle renamed files once git reports them",
+      "refs": [
+        "standard-2-2-07"
+      ]
+    },
+    {
+      "id": "std-weak-typing",
+      "severity": "medium",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "\\bdynamic\\b|\\bobject\\b|\\bany\\b|\\bAny\\b|interface\\{\\}|Dictionary<string,\\s*object|Record<string,\\s*(any|unknown)>|\\bdict\\b|\\bDict\\b|JObject|JsonNode|JToken"
+      ],
+      "check": "Do not hold data of a known shape in `dynamic`, `object`, `any`, `interface{}`, or untyped dictionaries. At untrusted boundaries use `unknown` (TypeScript) or a typed model and narrow it by validation.",
+      "bad": "function userId(body: any) { return body.user.id; }",
+      "good": "function userId(body: unknown): string { return UserBody.parse(body).user.id; }",
+      "allowed": [
+        "A concrete interoperability need, such as a third-party API typed as object"
+      ],
+      "refs": [
+        "standard-1-1-02",
+        "standard-9-ts-03"
+      ]
+    },
+    {
+      "id": "std-null-forgiving",
+      "severity": "medium",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "[\\w\\)\\]]!(?=[.;,\\)\\[\\s]|$)",
+        "\\bnull!|\\bdefault!|!!\\.|@ts-ignore|@ts-expect-error|# type: ignore|#nullable disable|#pragma warning disable"
+      ],
+      "check": "Do not silence null or type checks with `!`, `!!`, `null!`, `@ts-ignore`, `# type: ignore`, or warning suppression unless a comment states the verified invariant. Check for null instead.",
+      "bad": "string name = user!.Name;",
+      "good": "if (user is null) return Error.NotFound(id); string name = user.Name;",
+      "refs": [
+        "standard-1-3-05"
+      ]
+    },
+    {
+      "id": "std-unvalidated-optional",
+      "severity": "medium",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "\\bnull\\b|\\bNone\\b|\\bundefined\\b|\\bnil\\b|\\?\\?|\\?\\.|Optional|Nullable|\\w\\?\\s+\\w"
+      ],
+      "check": "Check nullable or optional values that come from outside (input, config, HTTP, database) before use, and narrow their type. Do not let one value (null, empty string, -1) stand for several different states such as missing, invalid, and valid.",
+      "bad": "int? limit = settings.Limit; return items.Take(limit.Value);",
+      "good": "if (settings.Limit is not int limit) throw new ConfigException(\"limit is required\"); return items.Take(limit);",
+      "refs": [
+        "standard-1-3-04",
+        "standard-1-3-07"
+      ]
+    },
+    {
+      "id": "std-unvalidated-input",
+      "severity": "high",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "(?i)deserializ|json\\.loads?\\(|JSON\\.parse|\\.json\\(\\)|yaml\\.(safe_)?load|ReadAllText|ReadToEnd|readFile|ReadAsStringAsync|\\breq\\.(body|query|params)|Request\\.(Query|Form|Body)|\\bargv\\b|\\bargs\\[|GetEnvironmentVariable|process\\.env|os\\.environ|getenv|\\binput\\("
+      ],
+      "check": "Validate data from outside (CLI arguments, environment, config, files, HTTP, deserialized JSON, AI output) where it enters, and turn it into a typed model before use: required fields present, values in range, formats correct. TypeScript types alone do not validate runtime data.",
+      "bad": "var cfg = JsonSerializer.Deserialize<Config>(text)!; Connect(cfg.Url);",
+      "good": "var cfg = JsonSerializer.Deserialize<Config>(text) ?? throw new ConfigException(\"empty config\"); if (!Uri.TryCreate(cfg.Url, UriKind.Absolute, out Uri? url)) throw new ConfigException(\"invalid url\"); Connect(url);",
+      "refs": [
+        "standard-4-1-01",
+        "standard-1-1-06",
+        "standard-6-02",
+        "standard-9-ts-06"
+      ]
+    },
+    {
+      "id": "std-untrusted-ai-content",
+      "severity": "high",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "(?i)\\b(llm|openai|anthropic|gemini|ollama|gpt|claude|completion|chat|prompt|model|agent|tool_?call)"
+      ],
+      "check": "Treat AI model output and repository content (code, comments, commit messages, file names) as untrusted data. Validate the parsed structure and values before acting, and never let it change system instructions, permissions, or which tools run. Parsing successfully does not make it correct.",
+      "bad": "var plan = JsonSerializer.Deserialize<Plan>(reply)!; RunTool(plan.Tool, plan.Args);",
+      "good": "if (plan is null || !AllowedTools.Contains(plan.Tool)) throw new InvalidModelOutputException(\"unknown tool\");",
+      "refs": [
+        "standard-6-03",
+        "standard-6-04",
+        "standard-7-03",
+        "standard-7-04"
+      ]
+    },
+    {
+      "id": "std-loose-schema",
+      "severity": "medium",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "(?i)serializ|\\bjson\\b|\\bxml\\b|\\byaml\\b|schema|\\bdto\\b|Parse\\(|TryParse|JsonProperty|@dataclass|BaseModel|zod|\\benum\\b|record\\s+\\w+|(Request|Response|Payload|Message)\\b"
+      ],
+      "check": "For data exchanged with external systems, use an explicit typed schema. Check identifiers, paths, ranges, enum values, and cross-field rules; handle missing fields, unknown fields, malformed payloads, and unsupported versions on purpose. Never silently replace an invalid value with a default.",
+      "bad": "int port = int.TryParse(raw, out int p) ? p : 8080;",
+      "good": "if (!int.TryParse(raw, out int port) || port is < 1 or > 65535) throw new ConfigException($\"invalid port: {raw}\");",
+      "refs": [
+        "standard-6-07",
+        "standard-6-01",
+        "standard-6-05",
+        "standard-6-09"
+      ]
+    },
+    {
+      "id": "std-unstable-output",
+      "severity": "low",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "(?i)serializ|json\\.dumps|JSON\\.stringify|ToJson|WriteAllText|sha256|hashlib|createHash|fingerprint|string\\.Join|\\.join\\(|HashSet|Dictionary|\\bset\\(|Object\\.keys|DateTime\\.Now|Guid\\.NewGuid"
+      ],
+      "check": "When output must be stable (reports, hashes, fingerprints, cache keys, files under version control), produce it deterministically: fixed key and element order, invariant culture, no timestamps or random values unless required.",
+      "bad": "string key = string.Join(\",\", tags);  // tags is a HashSet",
+      "good": "string key = string.Join(\",\", tags.Order(StringComparer.Ordinal));",
+      "refs": [
+        "standard-6-06"
+      ]
+    },
+    {
+      "id": "std-shared-mutation",
+      "severity": "medium",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "\\bList<|\\bDictionary<|\\bHashSet<|\\[\\]|\\bstatic\\s+(?!readonly|class|void|async|string\\b|int\\b|bool\\b|partial|extern|Task|IEnumerable|IReadOnly|ReadOnly)",
+        "\\bglobal\\b|\\bnonlocal\\b|\\.(push|Add|AddRange|append|extend|Remove|Clear|sort|splice|pop|Insert|update)\\(|Object\\.assign"
+      ],
+      "check": "Do not expose internal mutable collections (return a read-only view or a copy), do not modify input parameters or shared objects, and do not add mutable global or static state. A function presented as pure must not change outside state.",
+      "bad": "public List<Item> Items => _items;",
+      "good": "public IReadOnlyList<Item> Items => _items.AsReadOnly();",
+      "refs": [
+        "standard-1-2-06",
+        "standard-1-2-07",
+        "standard-3-3-02",
+        "standard-4-2-04"
+      ]
+    },
+    {
+      "id": "std-unsafe-state-change",
+      "severity": "medium",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "(?i)\\b(state|status|phase|stage)\\b|transition|SaveChanges|BeginTransaction|\\bcommit\\(|\\brollback|\\.update\\(|\\.insert\\(|File\\.(Write|Move|Replace|Delete)|\\b(UPDATE|INSERT|DELETE)\\s"
+      ],
+      "check": "Check that a state change is allowed before applying it, and reject invalid states explicitly (throw or return an error) instead of letting them continue. Use a transaction or an atomic write when several related updates must succeed or fail together.",
+      "bad": "order.Status = OrderStatus.Shipped;",
+      "good": "if (order.Status != OrderStatus.Paid) throw new InvalidOperationException($\"cannot ship an order that is {order.Status}\"); order.Status = OrderStatus.Shipped;",
+      "refs": [
+        "standard-4-2-05",
+        "standard-4-1-02",
+        "standard-4-2-06"
+      ]
+    },
+    {
+      "id": "std-resource-leak",
+      "severity": "medium",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "new\\s+\\w*(Stream|Reader|Writer|Client|Connection|Command|Process|Timer|Socket|Semaphore|CancellationTokenSource|Watcher)\\b",
+        "File\\.(Open|Create)|\\bopen\\(|Process\\.Start|create(Read|Write)Stream|\\.connect\\(|\\.Connect\\(|Dispose|\\busing\\b|\\bwith\\b|\\bdefer\\b|\\bfinally\\b|\\.close\\(\\)|\\.Close\\(\\)"
+      ],
+      "check": "Release files, streams, HTTP responses, processes, connections, and other disposables deterministically, on both success and failure paths: `using`/`await using` in C#, `with` in Python, `defer` in Go, `try/finally` elsewhere.",
+      "bad": "var reader = new StreamReader(path); string text = reader.ReadToEnd();",
+      "good": "using var reader = new StreamReader(path); string text = reader.ReadToEnd();",
+      "refs": [
+        "standard-4-3-01",
+        "standard-4-3-02",
+        "standard-4-3-06"
+      ]
+    },
+    {
+      "id": "std-dropped-cancellation",
+      "severity": "high",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "\\basync\\b|\\bawait\\b|CancellationToken|AbortSignal|AbortController|context\\.Context|\\bctx\\b"
+      ],
+      "check": "Pass the caller's CancellationToken (or AbortSignal / context.Context) to every async call that accepts one. Do not drop it or replace it with `default` or `CancellationToken.None`.",
+      "bad": "public async Task<string> LoadAsync(string path, CancellationToken ct) => await File.ReadAllTextAsync(path);",
+      "good": "public async Task<string> LoadAsync(string path, CancellationToken ct) => await File.ReadAllTextAsync(path, ct);",
+      "refs": [
+        "standard-4-3-03",
+        "standard-9-cs-06"
+      ]
+    },
+    {
+      "id": "std-blocking-async",
+      "severity": "medium",
+      "files": [
+        "@cs"
+      ],
+      "triggers": [
+        "async\\s+void|\\.Result\\b|\\.Wait\\(|GetAwaiter\\(\\)\\.GetResult\\(\\)|Task\\.Run\\("
+      ],
+      "check": "Await asynchronous calls. Do not block on them with `.Result`, `.Wait()`, or `.GetAwaiter().GetResult()`, and do not write `async void` except for event handlers.",
+      "bad": "string body = client.GetStringAsync(url).Result;",
+      "good": "string body = await client.GetStringAsync(url, ct);",
+      "refs": [
+        "standard-9-cs-07",
+        "standard-9-cs-05"
+      ]
+    },
+    {
+      "id": "std-unbounded-external-call",
+      "severity": "medium",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "(?i)http|fetch\\(|socket|grpc|\\bretry|\\bretries|while\\s*\\(\\s*true|for\\s*\\(\\s*;\\s*;|Parallel\\.|WhenAll|Promise\\.all|\\bThread\\(|\\bgo\\s+func|Process\\.Start|subprocess|ReadToEnd|ReadAllBytes|readAll|timeout"
+      ],
+      "check": "Give every external call (HTTP, database, process, socket) an explicit timeout. Retries, concurrency, queues, and buffers need a limit. When a dependency is down or returns malformed data, fail with a clear error instead of hanging, crashing, or continuing with bad data.",
+      "bad": "while (true) { try { return await SendAsync(request, ct); } catch (HttpRequestException) { } }",
+      "good": "for (int attempt = 1; attempt <= MaxAttempts; attempt++) { ... }  // with HttpClient.Timeout set",
+      "refs": [
+        "standard-4-3-04",
+        "standard-4-3-05",
+        "standard-4-1-08"
+      ]
+    },
+    {
+      "id": "std-magic-value",
+      "severity": "low",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "(?<![\\w.\\\"'$#-])(?:[2-9]|\\d{2,})(?:\\.\\d+)?(?![\\w.\\\"'])"
+      ],
+      "check": "Replace an unexplained number or string that encodes a business or protocol meaning (limit, timeout, status code, key) with a named constant. 0, 1, and self-explanatory values are fine.",
+      "bad": "if (retries > 7) return;",
+      "good": "const int MaxRetries = 7; if (retries > MaxRetries) return;",
+      "allowed": [
+        "Test data and expected values in tests",
+        "Values whose meaning the same line makes obvious"
+      ],
+      "refs": [
+        "standard-3-4-01"
+      ]
+    },
+    {
+      "id": "std-hardcoded-config",
+      "severity": "medium",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "(?i)https?://|localhost|127\\.0\\.0\\.1|\\b\\d{1,3}(\\.\\d{1,3}){3}\\b|connectionstring|Server=|Data Source=|GetEnvironmentVariable|process\\.env|os\\.environ|getenv|IConfiguration|IOptions|settings|config"
+      ],
+      "check": "Values that change between environments or deployments (URLs, hosts, ports, paths, connection strings) belong in configuration, not code. Validate required settings at startup and fail with a clear message naming the setting.",
+      "bad": "var client = new HttpClient { BaseAddress = new Uri(\"https://api.prod.example.com\") };",
+      "good": "var client = new HttpClient { BaseAddress = settings.ApiBaseUrl };  // validated at startup",
+      "refs": [
+        "standard-3-4-02",
+        "standard-3-4-07"
+      ]
+    },
+    {
+      "id": "std-committed-secret",
+      "severity": "high",
+      "files": [
+        "@code",
+        "@config",
+        "*.env",
+        ".env*",
+        "*.config",
+        "*.ini",
+        "*.properties"
+      ],
+      "triggers": [
+        "(?i)(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|connection[_-]?string)\\w*[\\\"']?\\s*[:=]",
+        "-----BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-|AIza[0-9A-Za-z_-]{30,}"
+      ],
+      "check": "Never commit real secrets (passwords, tokens, API keys, private keys, connection strings with credentials) in code, configuration, or test fixtures. Read them from environment variables or a secret store.",
+      "bad": "const string password = \"hunter2\";",
+      "good": "string password = Environment.GetEnvironmentVariable(\"DB_PASSWORD\") ?? throw new ConfigException(\"DB_PASSWORD is not set\");",
+      "allowed": [
+        "Obvious placeholders such as <your-key> or changeme in examples and docs"
+      ],
+      "refs": [
+        "standard-3-4-06"
+      ]
+    },
+    {
+      "id": "std-injection",
+      "severity": "high",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "(?i)Process\\.Start|ProcessStartInfo|subprocess|os\\.system|os\\.popen|\\bexec\\w*\\(|\\bspawn\\(|child_process|Runtime\\.getRuntime|shell\\s*=\\s*True|\\b(ba)?sh\\s+-c",
+        "(?i)\\b(SELECT|INSERT|UPDATE|DELETE)\\b|ExecuteSql|FromSqlRaw|SqlCommand|\\.query\\(|\\.execute\\(|\\beval\\(|pickle\\.loads?|BinaryFormatter|yaml\\.load\\(|TypeNameHandling|ObjectInputStream|unserialize"
+      ],
+      "check": "Build shell commands and SQL with argument lists and parameters, never by concatenating or interpolating input. Do not deserialize untrusted data with unsafe formats (BinaryFormatter, pickle, yaml.load, TypeNameHandling) or `eval` it.",
+      "bad": "Process.Start(\"bash\", $\"-c \\\"git log {branch}\\\"\");",
+      "good": "var psi = new ProcessStartInfo(\"git\"); psi.ArgumentList.Add(\"log\"); psi.ArgumentList.Add(branch);",
+      "refs": [
+        "standard-7-05",
+        "standard-7-06"
+      ]
+    },
+    {
+      "id": "std-path-traversal",
+      "severity": "high",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "Path\\.(Combine|Join|GetFullPath)|path\\.(join|resolve)|os\\.path|filepath\\.|File\\.\\w+\\(|Directory\\.\\w+\\(|\\bfs\\.\\w+|readFile|writeFile|\\bopen\\(|ZipArchive|zipfile|tarfile|ExtractToDirectory"
+      ],
+      "check": "When a file path comes from input (user, pull request, archive entry, config, model output), resolve it and check that it stays inside the intended root before reading or writing.",
+      "bad": "return File.ReadAllText(Path.Combine(root, fileName));",
+      "good": "string full = Path.GetFullPath(Path.Combine(root, fileName)); if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal)) throw new SecurityException(\"path escapes root\"); return File.ReadAllText(full);",
+      "refs": [
+        "standard-7-07"
+      ]
+    },
+    {
+      "id": "std-excess-privilege",
+      "severity": "high",
+      "files": [
+        "@code",
+        "@config"
+      ],
+      "triggers": [
+        "(?i)permissions|write-all|:\\s*write\\b|pull_request_target|secrets\\.|\\bsudo\\b|chmod|0777|\\brun:|\\bscript:|checkout|persist-credentials|\\b(npm|pnpm|yarn)\\s+(install|ci|run|test)|dotnet\\s+(build|test|run)|\\bmake\\b|Process\\.Start|subprocess|\\bauthoriz|\\bisAdmin|\\brole|\\bfail(Open|Closed)?\\b|\\bbypass"
+      ],
+      "check": "Grant only the permissions, credentials, filesystem, and network access a job needs. Never build, run, or install untrusted pull request content while secrets or write permissions are available. Security checks must fail closed: on error or missing data, deny.",
+      "bad": "on: pull_request_target + actions/checkout with ref: github.event.pull_request.head.sha + run: npm test",
+      "good": "on: pull_request with permissions: { contents: read }",
+      "refs": [
+        "standard-7-01",
+        "standard-7-02",
+        "standard-7-08"
+      ]
+    },
+    {
+      "id": "std-layering",
+      "severity": "medium",
+      "files": [
+        "@code"
+      ],
+      "triggers": [
+        "(?i)Console\\.|HttpClient|HttpContext|DbContext|SqlConnection|\\bFile\\.|Environment\\.|process\\.(env|exit|argv)|\\bfetch\\(|axios|requests\\.|GetService|GetRequiredService|ServiceLocator|IServiceProvider|Resolve<|container\\.(get|resolve)|import .*\\b(http|express|fs|os)\\b"
+      ],
+      "check": "Keep business and domain logic free of I/O and infrastructure: it must not call the console, HTTP, files, database, CI APIs, AI SDKs, or a service locator directly, and must not use provider-specific response types. Pass dependencies in explicitly.",
+      "bad": "decimal Discount(Order o) { var rate = Services.Get<IRatesApi>().Fetch(); Console.WriteLine(rate); ... }",
+      "good": "decimal Discount(Order o, decimal rate) { ... }",
+      "allowed": [
+        "Composition roots, CLI entry points, and adapter classes whose job is the I/O"
+      ],
+      "refs": [
+        "standard-5-1-01",
+        "standard-3-1-02",
+        "standard-5-1-05",
+        "standard-5-3-01",
+        "standard-5-3-02",
+        "standard-6-08"
+      ]
+    },
+    {
+      "id": "std-weak-test",
+      "severity": "medium",
+      "files": [
+        "@tests"
+      ],
+      "triggers": [],
+      "check": "In tests: cover observable behavior, edge cases, invalid input, and failure paths; keep unit tests deterministic (no real clock, randomness, sleeps, or live network, AI, or external services); do not assert on private implementation details; never weaken or remove assertions just to make the build pass.",
+      "bad": "Assert.NotNull(result);  // replaced Assert.Equal(42, result.Total)",
+      "good": "Assert.Equal(42, result.Total);",
+      "refs": [
+        "standard-8-02",
+        "standard-8-03",
+        "standard-8-04",
+        "standard-8-06",
+        "standard-8-07"
+      ]
+    },
+    {
+      "id": "std-ts-import-alias",
+      "severity": "low",
+      "files": [
+        "@ts"
+      ],
+      "triggers": [
+        "\\bfrom\\s+[\\\"']\\.\\./|\\brequire\\(\\s*[\\\"']\\.\\./|\\bimport\\(\\s*[\\\"']\\.\\./"
+      ],
+      "check": "Import project-internal modules from other directories through the `@/` alias, not parent-directory paths such as `../domain/User`.",
+      "bad": "import { User } from \"../../models/User\";",
+      "good": "import { User } from \"@/models/User\";",
+      "allowed": [
+        "Same-directory ./ imports",
+        "Third-party package imports"
+      ],
+      "refs": [
+        "standard-9-ts-08"
+      ]
+    }
+  ],
+  "notChecked": [
+    {
+      "ref": "standard-3-2-01",
+      "reason": "Duplication across the codebase is not visible in a diff hunk."
+    },
+    {
+      "ref": "standard-5-1-04",
+      "reason": "Circular dependencies need the whole dependency graph; use an analyzer."
+    },
+    {
+      "ref": "standard-8-01",
+      "reason": "Already covered by the base prompt's missing-test findings."
+    },
+    {
+      "ref": "standard-8-05",
+      "reason": "Whether a boundary needs an integration test is a design judgment beyond the diff."
+    }
+  ]
+}

@@ -125,20 +125,20 @@ public static class Program
         }
         if (Uri.TryCreate(cfg.Provider.Endpoint, UriKind.Absolute, out Uri? endpoint) && endpoint.Scheme == Uri.UriSchemeHttp && !endpoint.IsLoopback)
             Console.Error.WriteLine("warning: provider endpoint uses plain HTTP; code and API key are sent unencrypted");
-        string? guidelines = cfg.Review.Guidelines;
-        RuleCatalog? catalog = guidelines is not null && Path.GetExtension(guidelines).Equals(".json", StringComparison.OrdinalIgnoreCase)
-            ? RuleCatalog.Load(guidelines) : null;
-        string? legacyStandard = guidelines is not null && catalog is null ? await File.ReadAllTextAsync(guidelines, ct) : null;
-        string systemPrompt = Review.SystemPrompt(LoadPrompt("code-review.md"), legacyStandard);
+        Ruleset? ruleset = cfg.Review.Ruleset is { } rulesetPath ? Ruleset.Load(rulesetPath) : null;
+        string? legacyStandard = cfg.Review.Guidelines is { } guidelines ? await File.ReadAllTextAsync(guidelines, ct) : null;
+        string format = LoadPrompt("review-format.md");
+        string systemPrompt = Review.SystemPrompt(LoadPrompt("code-review.md") + "\n" + format, legacyStandard);
+        string standardsPrompt = LoadPrompt("standards-review.md") + "\n" + format;
         string revalidationPrompt = LoadPrompt("revalidate.md");
-        string scopeMaterial = JsonSerializer.Serialize(cfg) + systemPrompt + revalidationPrompt + (catalog?.Sha256 ?? "");
+        string scopeMaterial = JsonSerializer.Serialize(cfg) + systemPrompt + standardsPrompt + revalidationPrompt + (ruleset?.Sha256 ?? "");
         string reviewScope = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(scopeMaterial)));
         ReviewCheckpoint? previous = UsableCheckpoint(ReviewCheckpoint.Load(opt.StateIn, Console.Error), opt.Since);
         // No client-wide timeout: Provider and AzureDevOpsPublisher bound every request with their configured timeout.
         using HttpClient http = new() { Timeout = Timeout.InfiniteTimeSpan };
         Provider provider = new(http, cfg.Provider, Environment.GetEnvironmentVariable("SMARTWIZZ_API_KEY"), log: Console.Error);
         (ReviewPlan plan, ReviewResult result, ReviewCheckpoint? next) = await IncrementalReview.RunAsync(
-            opt, previous, cfg.Review, provider, new ReviewPrompts(systemPrompt, revalidationPrompt), reviewScope, catalog, Console.Error, ct);
+            opt, previous, cfg.Review, provider, new ReviewPrompts(systemPrompt, revalidationPrompt, standardsPrompt), reviewScope, ruleset, Console.Error, ct);
 
         if (opt.Problems) Report.WriteProblems(result, Console.Out);
         else Report.WriteConsole(result, Console.Out);

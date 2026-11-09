@@ -21,8 +21,10 @@ public static class Report
         modeReason = plan?.Reason,
         r.ReviewedFiles,
         r.Models,
+        r.RulesetName,
         r.RulesetVersion,
         r.RulesetSha256,
+        r.Requests,
         r.SystemPromptCharacters,
         r.UserPromptCharacters,
         r.PromptTokens,
@@ -79,6 +81,8 @@ public static class Report
         w.WriteLine(Summary(r));
         if (r.Models.Count > 0)
             w.WriteLine($"Reviewed by: {string.Join(", ", r.Models)}");
+        if (r.RulesetName is not null)
+            w.WriteLine($"Ruleset: {r.RulesetName} {r.RulesetVersion}, {r.Requests} request(s)");
         foreach (Finding f in r.Findings)
         {
             string lines = f.EndLine is { } e ? $"{f.StartLine}-{e}" : $"{f.StartLine}";

@@ -207,6 +207,32 @@ public class GuidelinesTests
         }
         finally { Directory.Delete(dir, true); }
     }
+
+    [Fact]
+    public void Ruleset_resolves_relative_to_config_and_excludes_json_guidelines()
+    {
+        string dir = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            string cfgPath = Path.Combine(dir, "smartwizz.json");
+            File.WriteAllText(cfgPath, """{ "review": { "ruleset": "guide.json" } }""");
+            Assert.Throws<SmartWizzException>(() => Config.Load(cfgPath, _ => null));
+
+            File.WriteAllText(Path.Combine(dir, "guide.json"), "{}");
+            Assert.Equal(Path.Combine(dir, "guide.json"), Config.Load(cfgPath, _ => null).Review.Ruleset);
+
+            File.WriteAllText(Path.Combine(dir, "GUIDE.md"), "rules");
+            File.WriteAllText(cfgPath, """{ "review": { "ruleset": "guide.json", "guidelines": "GUIDE.md" } }""");
+            Assert.Contains("not both", Assert.Throws<SmartWizzException>(() => Config.Load(cfgPath, _ => null)).Message);
+
+            File.WriteAllText(cfgPath, """{ "review": { "guidelines": "guide.json" } }""");
+            Assert.Contains("review.ruleset", Assert.Throws<SmartWizzException>(() => Config.Load(cfgPath, _ => null)).Message);
+
+            File.WriteAllText(cfgPath, """{ "review": { "maxChecksPerRequest": -1 } }""");
+            Assert.Throws<SmartWizzException>(() => Config.Load(cfgPath, _ => null));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
 }
 
 public class ProviderDisposalTests

@@ -1,0 +1,18 @@
+{
+  // For local models below ~30B parameters (Ollama, vLLM, LM Studio, llama.cpp server). Copy to smartwizz.json.
+  // Give the model at least 8k tokens of context on the server side (Ollama: OLLAMA_CONTEXT_LENGTH or num_ctx).
+  "provider": {
+    "endpoint": "http://localhost:11434/v1/chat/completions",
+    "model": "your-local-model",
+    "temperature": 0,
+    "timeoutSeconds": 600, // local inference is slow on large batches
+    "maxRetries": 1
+  },
+  "review": {
+    "ruleset": "rulesets/engineering-standard.json", // swap this file to review against another coding guide
+    "maxChecksPerRequest": 8, // more applicable checks go to extra standards-only requests
+    "maxCharsPerRequest": 16000, // diff characters per request
+    "contextLines": 5,
+    "minConfidence": 0.6
+  }
+}
