@@ -8,7 +8,7 @@ public sealed class TrackedReviewTests : IDisposable
 {
     const string Defect = "    int X(Input input) => input.Value;";
     const string NoFindings = """{"findings":[]}""";
-    static readonly ReviewPrompts Prompts = new("REVIEW-PROMPT", "RECHECK-PROMPT", "STANDARDS-PROMPT");
+    static readonly ReviewPrompts Prompts = new("SYSTEM-PROMPT", "REVIEW-PROMPT", "RECHECK-PROMPT", "STANDARDS-PROMPT");
 
     readonly string _dir = Path.Combine(Path.GetTempPath(), "smartwizz-" + Guid.NewGuid().ToString("N"));
     readonly Queue<Func<HttpResponseMessage>> _reviews = new();

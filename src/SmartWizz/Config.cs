@@ -130,6 +130,8 @@ public sealed class ProviderConfig
     public int MaxRetries { get; set; } = 2;
     // Tried in order, same endpoint and key, only when the previous model stays overloaded/unavailable.
     public string[] FallbackModels { get; set; } = [];
+    // Constrain replies to the finding schema (response_format json_schema). Off by default: server support varies.
+    public bool JsonSchema { get; set; }
 }
 
 public sealed class ReviewConfig

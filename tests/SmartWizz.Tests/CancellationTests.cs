@@ -76,7 +76,7 @@ public class TimeoutTests
             """);
 
         SmartWizzException e = await Assert.ThrowsAsync<SmartWizzException>(() =>
-            Review.RunAsync(files, new ReviewConfig { MaxCharsPerRequest = 40 }, provider, "sys", default));
+            Review.RunAsync(files, new ReviewConfig { MaxCharsPerRequest = 40 }, provider, TestPrompts.Default, default));
         Assert.Equal(FailureKind.Provider, e.Kind);
         Assert.Equal(2, calls);
     }

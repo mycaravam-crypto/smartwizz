@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace SmartWizz;
 
@@ -69,11 +70,39 @@ public static class Revalidation
 
         foreach (List<Item> batch in Batch(items, cfg.MaxCharsPerRequest))
         {
-            Completion reply = await provider.CompleteAsync(prompt, BuildUserMessage(batch), ct);
+            Completion reply = await provider.CompleteAsync(prompt, BuildUserMessage(batch), ct,
+                ResultsSchema(batch.Select(i => i.Candidate.Tracked.Finding.Fingerprint)));
             rechecks.AddRange(Parse(reply.Content, batch.Select(i => i.Candidate).ToList()));
         }
         return rechecks;
     }
+
+    // Mirrors the result shape in prompts/revalidate.md; used when provider.jsonSchema is on.
+    public static OutputSchema ResultsSchema(IEnumerable<string> fingerprints) => new("results", new JsonObject
+    {
+        ["type"] = "object",
+        ["properties"] = new JsonObject
+        {
+            ["results"] = new JsonObject
+            {
+                ["type"] = "array",
+                ["items"] = new JsonObject
+                {
+                    ["type"] = "object",
+                    ["properties"] = new JsonObject
+                    {
+                        ["fingerprint"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray([.. fingerprints.Distinct().Select(f => (JsonNode)JsonValue.Create(f))]) },
+                        ["status"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("open", "resolved") },
+                        ["reason"] = new JsonObject { ["type"] = "string" },
+                    },
+                    ["required"] = new JsonArray("fingerprint", "status", "reason"),
+                    ["additionalProperties"] = false,
+                },
+            },
+        },
+        ["required"] = new JsonArray("results"),
+        ["additionalProperties"] = false,
+    });
 
     static IEnumerable<List<Item>> Batch(List<Item> items, int maxChars)
     {

@@ -31,7 +31,7 @@ SmartWizz is standalone and separate from GitWizz (merge ordering / merge readin
 - C# / .NET 10 (current LTS), single console project.
 - Git CLI for diffs, invoked with `--no-ext-diff --no-textconv` so repo config can't run commands.
 - One provider: OpenAI-compatible `POST /chat/completions` over raw `HttpClient`. No SDK.
-- No `response_format` (support varies across local/hosted servers); the prompt demands JSON and the parser tolerates code fences.
+- `response_format: json_schema` only when `provider.jsonSchema` is on (default off: support varies across local/hosted servers). Without it the prompt demands JSON and the parser tolerates code fences; either way the parser validates every finding.
 - JSON config + CLI flags; secrets only from environment variables.
 
 ## Structure
@@ -47,7 +47,9 @@ src/SmartWizz/
   Provider.cs       OpenAI-compatible client
   Report.cs         console + JSON output
   AzureDevOps.cs    PR thread publisher
-prompts/code-review.md          system prompt (embedded resource)
+prompts/review-format.md        shared system prompt: role, untrusted-data rules, output format (embedded resource)
+prompts/code-review.md          general review task, sent after the diff
+prompts/standards-review.md     follow-up (standards-only) task, sent after the diff
 tests/SmartWizz.Tests/
 pipelines/azure-pipelines.yml
 smartwizz.example.json

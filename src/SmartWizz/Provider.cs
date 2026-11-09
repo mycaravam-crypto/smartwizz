@@ -1,11 +1,15 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace SmartWizz;
 
 public sealed record Completion(string Content, string Model, int? PromptTokens = null, int? CompletionTokens = null);
+
+// The JSON schema a reply must follow; Name is sent as json_schema.name ([A-Za-z0-9_-]).
+public sealed record OutputSchema(string Name, JsonObject Schema);
 
 // OpenAI-compatible chat-completions client. Works with hosted and local servers (Ollama, vLLM, LM Studio, ...).
 // Overload answers (429/5xx) and dropped connections are retried, then the next fallback model is tried.
@@ -23,18 +27,22 @@ public sealed class Provider(
     sealed record Attempt(string? Content, SmartWizzException? Error, bool Retryable, TimeSpan? RetryAfter,
         int? PromptTokens = null, int? CompletionTokens = null);
 
-    public async Task<Completion> CompleteAsync(string system, string user, CancellationToken ct)
+    // schema: the JSON schema this reply must follow. Sent as response_format only when provider.jsonSchema is on.
+    public async Task<Completion> CompleteAsync(string system, string user, CancellationToken ct, OutputSchema? schema = null)
     {
         if (string.IsNullOrWhiteSpace(cfg.Endpoint) || string.IsNullOrWhiteSpace(cfg.Model))
             throw new SmartWizzException(FailureKind.Configuration, "provider.endpoint and provider.model must be configured");
 
+        object? responseFormat = cfg.JsonSchema && schema is not null
+            ? new { type = "json_schema", json_schema = new { name = schema.Name, strict = true, schema = schema.Schema } }
+            : null;
         string[] models = [cfg.Model, .. cfg.FallbackModels];
         SmartWizzException? lastError = null;
         for (int m = 0; m < models.Length; m++)
         {
             for (int attempt = 0; attempt <= cfg.MaxRetries; attempt++)
             {
-                Attempt result = await SendOnceAsync(cfg.Endpoint, models[m], system, user, ct);
+                Attempt result = await SendOnceAsync(cfg.Endpoint, models[m], system, user, responseFormat, ct);
                 if (result.Content is not null)
                     return new Completion(result.Content, models[m], result.PromptTokens, result.CompletionTokens);
 
@@ -56,7 +64,7 @@ public sealed class Provider(
             $"all models unavailable ({string.Join(", ", models)}): {lastError!.Message}", lastError);
     }
 
-    async Task<Attempt> SendOnceAsync(string endpoint, string model, string system, string user, CancellationToken ct)
+    async Task<Attempt> SendOnceAsync(string endpoint, string model, string system, string user, object? responseFormat, CancellationToken ct)
     {
         using var req = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
@@ -66,6 +74,7 @@ public sealed class Provider(
                 model,
                 temperature = cfg.Temperature,
                 messages = new[] { new { role = "system", content = system }, new { role = "user", content = user } },
+                response_format = responseFormat,
             }, Json), Encoding.UTF8, "application/json"),
         };
         if (!string.IsNullOrEmpty(apiKey))
@@ -99,6 +108,11 @@ public sealed class Provider(
             return new Attempt(null, new SmartWizzException(FailureKind.Provider, $"provider request failed: {e.Message}", e), Retryable: true, null);
         }
 
+        // Not retried without the schema: silently dropping it would hide that the setting has no effect.
+        if (status == 400 && responseFormat is not null)
+            throw new SmartWizzException(FailureKind.Configuration,
+                $"provider returned 400 with provider.jsonSchema enabled; the server may not support response_format json_schema. "
+                + $"Disable provider.jsonSchema or use a server that supports it: {Truncate(body, 500)}");
         if (status is < 200 or > 299)
         {
             var error = new SmartWizzException(FailureKind.Provider, $"provider returned {status}: {Truncate(body, 500)}");
