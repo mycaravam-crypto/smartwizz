@@ -10,9 +10,12 @@ public sealed record ReviewPlan(ReviewMode Mode, string? SinceSha, string Reason
 {
     // Anything short of a verified ancestor baseline falls back to the complete PR diff.
     public static async Task<ReviewPlan> DecideAsync(string repo, string head, string? sinceSha, bool stateRequested,
-        ReviewCheckpoint? previous, bool fullReviewRequested, CancellationToken ct)
+        ReviewCheckpoint? previous, string reviewScope, bool fullReviewRequested, CancellationToken ct)
     {
         if (fullReviewRequested) return new(ReviewMode.Full, null, "full review requested");
+        // Unlike an untrusted checkpoint, this one keeps its findings: new rules need a complete review, not amnesia.
+        if (previous is not null && !string.Equals(previous.ReviewScopeSha256, reviewScope, StringComparison.Ordinal))
+            return new(ReviewMode.Full, null, "review configuration changed");
         if (sinceSha is null) return new(ReviewMode.Full, null, "no previous review");
         if (stateRequested && previous is null) return new(ReviewMode.Full, null, "no usable checkpoint");
         if (!await GitDiff.CommitExistsAsync(repo, sinceSha, ct)) return new(ReviewMode.Full, null, "previously reviewed commit not found");
