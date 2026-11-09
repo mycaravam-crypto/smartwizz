@@ -46,6 +46,60 @@ dotnet run --project src/SmartWizz -- --repo ../my-repo --base origin/main
 
 A failure in any request batch fails the whole run; a partial review is never reported as complete.
 
+## Quick local check
+
+Install the `smartwizz` command once (re-run to update; existing config is kept):
+
+```sh
+tools/install.sh    # copies smartwizz.json, rules/ and .env to ~/.config/smartwizz
+```
+
+Then, inside any Git repo:
+
+```sh
+smartwizz check            # all uncommitted changes to tracked files
+smartwizz check --staged   # only what is staged
+```
+
+`check` sends those changes to the provider configured in `~/.config/smartwizz/smartwizz.json`. It never reads `smartwizz.json` or `.env` from the repo being reviewed, so a cloned repo cannot redirect your API key. Untracked files are listed but not reviewed; `git add -N <path>` includes them. `--json`, `--annotated-diff` and `--fail-on` work as usual.
+
+## Install as a .NET tool
+
+An alternative to `tools/install.sh`. Use one or the other: if you already ran the script, delete `~/.local/bin/smartwizz` first, because it comes earlier on the `PATH`.
+
+SmartWizz is not on NuGet, so you build the package from a clone. You need the .NET 10 SDK, `git`, and `~/.dotnet/tools` (`%USERPROFILE%\.dotnet\tools` on Windows) on your `PATH`.
+
+**1. Build and install.** Run from the SmartWizz checkout:
+
+```sh
+dotnet pack src/SmartWizz -c Release -p:Version=0.1.$(git rev-list --count HEAD)
+dotnet tool update --global --add-source src/SmartWizz/bin/Release MyCaravam.SmartWizz
+```
+
+`dotnet tool update` installs the tool if it is missing.
+
+**2. Create the user config.** `smartwizz check` reads only this directory. On Windows it is `%APPDATA%\smartwizz`.
+
+```sh
+conf="${XDG_CONFIG_HOME:-$HOME/.config}/smartwizz"
+mkdir -p "$conf"
+cp -r smartwizz.json rules "$conf/"
+cp .env.example "$conf/.env"
+chmod 600 "$conf/.env"
+```
+
+Then set `SMARTWIZZ_API_KEY` in `$conf/.env`, and edit `$conf/smartwizz.json` if you use a provider other than the preconfigured Gemini.
+
+**3. Run it** inside any Git repo:
+
+```sh
+smartwizz check
+```
+
+**Update:** pull, then repeat step 1. The version comes from the commit count, so commit local changes first; at an unchanged version the update does nothing. Step 2 is not needed again, but copy `rules/` again if you want newer rules.
+
+**Uninstall:** `dotnet tool uninstall --global MyCaravam.SmartWizz`, and delete the config directory if you no longer need it.
+
 ## Review locally before committing
 
 Stage the changes you want reviewed with `git add -p`. Then run SmartWizz from its checkout (configured as above):
@@ -134,6 +188,8 @@ Hosted models regularly answer "high demand" (503) or "rate limited" (429), and 
 Every retry and fallback is logged to stderr. The report and JSON name the models that actually reviewed (`Reviewed by:` / `"models"`), because a fallback model may review differently.
 
 ## Output
+
+When the model can express a fix within the reported lines, the console report shows it under the finding and the JSON includes it as `suggestedFix`. Suggestions are never applied.
 
 Console report plus, with `--json`:
 

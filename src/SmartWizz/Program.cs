@@ -8,8 +8,11 @@ namespace SmartWizz;
 public static class Program
 {
     const string Usage = """
-        Usage: smartwizz (--base <ref> | --pr <id> | --staged) [options]
+        Usage: smartwizz check [--staged] [--repo <path>] [--config <path>] [--json <path>] [--annotated-diff <path>] [--fail-on <sev>]
+               smartwizz (--base <ref> | --pr <id> | --staged) [options]
 
+          check               Review your uncommitted changes (with --staged: only the index).
+                              Config and .env come from the user config directory, never the reviewed repo.
           --base <ref>        Target branch/commit the PR merges into, e.g. origin/main
           --pr <id>           Resolve Azure DevOps PR via ado-devops CLI (read-only)
           --staged            Review only staged (index) changes; no commit or PR needed
@@ -96,7 +99,15 @@ public static class Program
 
     static async Task<int> RunAsync(Options opt, CancellationToken ct)
     {
-        Config.LoadDotEnv(".env");
+        if (opt.Check)
+        {
+            // check runs inside arbitrary repos, whose ./smartwizz.json could redirect the provider and capture the API key.
+            string userConfig = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.DoNotVerify), "smartwizz");
+            Config.LoadDotEnv(Path.Combine(userConfig, ".env"));
+            opt = opt with { ConfigPath = opt.ConfigPath ?? Path.Combine(userConfig, "smartwizz.json") };
+        }
+        else Config.LoadDotEnv(".env");
         var cfg = Config.Load(opt.ConfigPath, Environment.GetEnvironmentVariable);
         if (opt.PrId is { } prId)
         {
@@ -135,8 +146,8 @@ public static class Program
             await File.WriteAllTextAsync(opt.JsonPath, Report.ToJson(result, plan, next), ct);
         if (opt.AnnotatedDiffPath is not null)
         {
-            string diff = opt.Staged
-                ? await GitDiff.RunStagedAsync(opt.Repo, cfg.Review.ContextLines, ct)
+            string diff = opt.Staged || opt.Check
+                ? await IncrementalReview.LocalDiffAsync(opt, cfg.Review.ContextLines, ct)
                 : await GitDiff.RunAsync(opt.Repo, opt.Base!, opt.Head, cfg.Review.ContextLines, ct);
             await File.WriteAllTextAsync(opt.AnnotatedDiffPath, AnnotatedDiff.Render(diff, result.Findings), ct);
         }
@@ -185,6 +196,7 @@ public sealed record Options
     public string? Base { get; init; }
     public int? PrId { get; init; }
     public bool Staged { get; init; }
+    public bool Check { get; init; }
     public string Head { get; init; } = "HEAD";
     public string? Since { get; init; }
     public bool FullReview { get; init; }
@@ -207,6 +219,7 @@ public sealed record Options
             string Value() => ++i < args.Length ? args[i] : throw new SmartWizzException(FailureKind.Usage, $"{args[i - 1]} needs a value");
             o = args[i] switch
             {
+                "check" when i == 0 => o with { Check = true },
                 "--base" => o with { Base = Value() },
                 "--pr" => o with { PrId = int.TryParse(Value(), out int id) && id > 0 ? id : throw new SmartWizzException(FailureKind.Usage, "--pr requires a positive integer") },
                 "--staged" => o with { Staged = true },
@@ -230,12 +243,12 @@ public sealed record Options
             throw new SmartWizzException(FailureKind.Usage, "--state-in requires --since and --state-out");
         if (o.Since is not null && !ReviewCheckpoint.IsCommitSha(o.Since))
             throw new SmartWizzException(FailureKind.Usage, "--since must be a full 40-character commit SHA");
-        if (!o.Help && o.Staged)
+        if (!o.Help && (o.Staged || o.Check))
         {
             if (o.Base is not null || o.PrId is not null || o.Head != "HEAD" || o.Since is not null ||
                 o.StateIn is not null || o.StateOut is not null || o.FullReview || o.Publish || o.PublishGitHub)
                 throw new SmartWizzException(FailureKind.Usage,
-                    "--staged cannot be combined with PR, commit, checkpoint, or publish options");
+                    "check and --staged cannot be combined with PR, commit, checkpoint, or publish options");
         }
         else if (!o.Help && ((o.PrId is null && string.IsNullOrWhiteSpace(o.Base)) || (o.PrId is not null && o.Base is not null)))
             throw new SmartWizzException(FailureKind.Usage, "specify exactly one of --base, --pr or --staged");

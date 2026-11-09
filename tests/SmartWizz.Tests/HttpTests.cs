@@ -289,6 +289,17 @@ public class ReportTests
         Assert.Contains("[CRITICAL] db.cs:4-6  Raw SQL", text);
         Assert.Contains("    Line two", text);
         Assert.Contains("Skipped: a.lock (excluded)", text);
+        Assert.DoesNotContain("Suggested fix", text);
+    }
+
+    [Fact]
+    public void Console_prints_suggested_fix_with_its_indentation()
+    {
+        Finding finding = new("r", Severity.Low, "t", "m", "f", 1, null, 1, "x", "if (a)\n    b();");
+        StringWriter w = new();
+        Report.WriteConsole(new ReviewResult { Findings = [finding] }, w);
+        string text = w.ToString().ReplaceLineEndings("\n");
+        Assert.Contains("    Suggested fix (AI-generated, verify before applying):\n        if (a)\n            b();\n", text);
     }
 }
 

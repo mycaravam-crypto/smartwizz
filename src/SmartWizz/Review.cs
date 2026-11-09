@@ -17,7 +17,7 @@ public enum Severity
 
 public sealed record Finding(
     string RuleId, Severity Severity, string Title, string Message,
-    string FilePath, int StartLine, int? EndLine, double Confidence, string Fingerprint);
+    string FilePath, int StartLine, int? EndLine, double Confidence, string Fingerprint, string? SuggestedFix = null);
 
 public sealed record SkippedFile(string Path, string Reason);
 
@@ -206,8 +206,17 @@ public static partial class Review
         if (ruleId.StartsWith("standard-", StringComparison.OrdinalIgnoreCase) && allowedRuleIds is not null
             && !allowedRuleIds.Contains(ruleId))
             return Reject(out reason, $"{path}:{start}: unknown or inapplicable standard ruleId {ruleId}");
+        // Optional: a malformed suggestion never costs the finding itself.
+        string? fix = e.TryGetProperty("suggestedFix", out JsonElement s) && s.ValueKind == JsonValueKind.String ? CleanCode(s.GetString()!) : null;
         return new Finding(ruleId, sev.Value, Cap(Sanitize(title, false), 200), Cap(Sanitize(message, true), 4000), path, start.Value,
-            end == start ? null : end, conf.Value, Fingerprint(ruleId, path, startText));
+            end == start ? null : end, conf.Value, Fingerprint(ruleId, path, startText), fix);
+    }
+
+    // Like message text, but indentation is meaningful: tabs would be stripped as control characters.
+    static string? CleanCode(string text)
+    {
+        string code = Sanitize(text.Replace("\t", "    "), true).TrimEnd().TrimStart('\n');
+        return code.Length == 0 ? null : Cap(code, 4000);
     }
 
     // Contiguous new-side lines shown in one hunk, so the range maps onto what the reviewer sees.

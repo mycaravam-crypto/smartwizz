@@ -7,16 +7,22 @@ public sealed record ReviewRun(ReviewPlan Plan, ReviewResult Result, ReviewCheck
 // Plan, review, re-check earlier findings and compute the next checkpoint. Persists nothing.
 public static class IncrementalReview
 {
+    public static Task<string> LocalDiffAsync(Options opt, int contextLines, CancellationToken ct) => opt.Staged
+        ? GitDiff.RunStagedAsync(opt.Repo, contextLines, ct)
+        : GitDiff.RunUncommittedAsync(opt.Repo, contextLines, ct);
+
     public static async Task<ReviewRun> RunAsync(Options opt, ReviewCheckpoint? previous, ReviewConfig cfg, Provider provider,
         ReviewPrompts prompts, string reviewScope, RuleCatalog? catalog, TextWriter log, CancellationToken ct)
     {
-        if (opt.Staged)
+        if (opt.Staged || opt.Check)
         {
-            ReviewPlan stagedPlan = new(ReviewMode.Staged, null, "git index");
-            log.WriteLine("review mode: staged (git index)");
-            List<FileDiff> stagedFiles = GitDiff.Parse(await GitDiff.RunStagedAsync(opt.Repo, cfg.ContextLines, ct));
-            ReviewResult stagedResult = await Review.RunAsync(stagedFiles, cfg, provider, prompts.Review, ct, catalog);
-            return new ReviewRun(stagedPlan, stagedResult, null);
+            ReviewPlan localPlan = opt.Staged ? new(ReviewMode.Staged, null, "git index") : new(ReviewMode.Uncommitted, null, "working tree vs HEAD");
+            log.WriteLine($"review mode: {localPlan.Mode.ToString().ToLowerInvariant()} ({localPlan.Reason})");
+            if (!opt.Staged && await GitDiff.ListUntrackedAsync(opt.Repo, ct) is { Count: > 0 } untracked)
+                log.WriteLine($"note: untracked, not reviewed (`git add -N <path>` includes them): {string.Join(", ", untracked)}");
+            List<FileDiff> localFiles = GitDiff.Parse(await LocalDiffAsync(opt, cfg.ContextLines, ct));
+            ReviewResult localResult = await Review.RunAsync(localFiles, cfg, provider, prompts.Review, ct, catalog);
+            return new ReviewRun(localPlan, localResult, null);
         }
 
         ReviewPlan plan = await ReviewPlan.DecideAsync(opt.Repo, opt.Head, opt.Since, opt.StateIn is not null, previous, opt.FullReview, ct);

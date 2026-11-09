@@ -6,6 +6,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>smartwizz</ToolCommandName>
+    <!-- Namespaced: tool install also queries nuget.org, where a plain "SmartWizz" could be claimed by anyone. -->
+    <PackageId>MyCaravam.SmartWizz</PackageId>
   </PropertyGroup>
 
   <ItemGroup>
