@@ -68,6 +68,12 @@ public static class Report
             w.WriteLine($"[{f.Severity.ToString().ToUpperInvariant()}] {f.FilePath}:{lines}  {f.Title}");
             foreach (string line in f.Message.Split('\n'))
                 w.WriteLine($"    {line.TrimEnd()}");
+            if (f.SuggestedFix is { } fix)
+            {
+                w.WriteLine("    Suggested fix (AI-generated, verify before applying):");
+                foreach (string line in fix.Split('\n'))
+                    w.WriteLine($"        {line.TrimEnd()}");
+            }
             w.WriteLine($"    ({f.RuleId}, confidence {f.Confidence:0.00}, fp {f.Fingerprint})");
         }
         if (r.SkippedFiles.Count > 0)

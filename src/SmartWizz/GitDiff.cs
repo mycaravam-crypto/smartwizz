@@ -29,6 +29,27 @@ public static partial class GitDiff
     public static Task<string> RunStagedAsync(string repo, int contextLines, CancellationToken ct) =>
         RunDiffAsync(repo, ["--cached"], contextLines, ct);
 
+    // Working tree vs HEAD: staged and unstaged edits, with the line numbers the editor shows. Excludes untracked files.
+    public static Task<string> RunUncommittedAsync(string repo, int contextLines, CancellationToken ct) =>
+        RunDiffAsync(repo, ["HEAD"], contextLines, ct);
+
+    // Repo-root-relative; untracked directories are collapsed. For telling the user what the review did not see.
+    public static async Task<List<string>> ListUntrackedAsync(string repo, CancellationToken ct)
+    {
+        ProcessStartInfo psi = new("git") { RedirectStandardOutput = true, RedirectStandardError = true, StandardOutputEncoding = Encoding.UTF8 };
+        foreach (string arg in new[] { "-C", repo, "-c", "core.quotePath=false", "-c", "core.fsmonitor=false", "status", "--porcelain", "--untracked-files=normal" })
+            psi.ArgumentList.Add(arg);
+        using Process process = Process.Start(psi) ?? throw new SmartWizzException(FailureKind.Git, "failed to start git");
+        using CancellationTokenRegistration kill = ct.Register(() => KillQuietly(process));
+        Task<string> error = process.StandardError.ReadToEndAsync(ct);
+        string output = await process.StandardOutput.ReadToEndAsync(ct);
+        await process.WaitForExitAsync(ct);
+        ct.ThrowIfCancellationRequested();
+        if (process.ExitCode != 0)
+            throw new SmartWizzException(FailureKind.Git, $"git status failed ({process.ExitCode}): {(await error).Trim()}");
+        return [.. output.Split('\n').Where(l => l.StartsWith("?? ", StringComparison.Ordinal)).Select(l => l[3..])];
+    }
+
     static async Task<string> RunDiffAsync(string repo, IReadOnlyList<string> selection, int contextLines, CancellationToken ct)
     {
         var psi = new ProcessStartInfo("git")
@@ -40,7 +61,7 @@ public static partial class GitDiff
         // --no-ext-diff / --no-textconv: never let repository config run commands.
         foreach (string a in new[]
                  {
-                     "-C", repo, "-c", "core.quotePath=false", "diff", "--no-color", "--no-ext-diff", "--no-textconv",
+                     "-C", repo, "-c", "core.quotePath=false", "-c", "core.fsmonitor=false", "diff", "--no-color", "--no-ext-diff", "--no-textconv",
                      "--find-renames", $"-U{contextLines}",
                  })
             psi.ArgumentList.Add(a);

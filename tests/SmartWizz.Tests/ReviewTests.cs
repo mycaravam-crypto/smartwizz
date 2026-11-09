@@ -26,6 +26,20 @@ public class ReviewTests
     }
 
     [Fact]
+    public void Suggested_fix_keeps_indentation_and_drops_control_characters()
+    {
+        Finding f = Assert.Single(Parse(One(Good + """,  "suggestedFix":"    a();\n\tb();\u001b[31m\n" """)));
+        Assert.Equal("    a();\n    b();[31m", f.SuggestedFix);
+    }
+
+    [Theory]
+    [InlineData("42")]
+    [InlineData("\"   \"")]
+    [InlineData("\"\\u0007\"")]
+    public void Unusable_suggested_fix_keeps_the_finding(string value) =>
+        Assert.Null(Assert.Single(Parse(One(Good + ",\"suggestedFix\":" + value))).SuggestedFix);
+
+    [Fact]
     public void Empty_findings_is_fine() => Assert.Empty(Parse("""{"findings": []}"""));
 
     [Theory]
@@ -161,6 +175,19 @@ public class ReviewTests
         ];
         foreach (string[] other in incompatible)
             Assert.Throws<SmartWizzException>(() => Options.Parse(["--staged", .. other]));
+    }
+
+    [Fact]
+    public void Check_needs_no_other_options_and_rejects_pr_options()
+    {
+        var check = Options.Parse(["check"]);
+        Assert.True(check.Check);
+        Assert.False(check.Staged);
+        Assert.True(Options.Parse(["check", "--staged"]).Staged);
+
+        Assert.Throws<SmartWizzException>(() => Options.Parse(["check", "--base", "main"]));
+        Assert.Throws<SmartWizzException>(() => Options.Parse(["check", "--publish"]));
+        Assert.Throws<SmartWizzException>(() => Options.Parse(["--json", "out.json", "check"]));
     }
 
     [Fact]

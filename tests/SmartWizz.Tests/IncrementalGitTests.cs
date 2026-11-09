@@ -64,6 +64,37 @@ public class IncrementalGitTests
     }
 
     [Fact]
+    public async Task Uncommitted_review_reads_staged_and_unstaged_edits_and_lists_untracked()
+    {
+        string dir = Path.Join(Path.GetTempPath(), "smartwizz-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            Git(dir, "init", "-b", "main");
+            Git(dir, "config", "user.email", "test@example.invalid");
+            Git(dir, "config", "user.name", "SmartWizz Test");
+            File.WriteAllText(Path.Join(dir, "staged.cs"), "original\n");
+            File.WriteAllText(Path.Join(dir, "edited.cs"), "original\n");
+            File.WriteAllText(Path.Join(dir, ".gitignore"), "ignored.cs\n");
+            Git(dir, "add", ".");
+            Git(dir, "commit", "-m", "base");
+
+            File.WriteAllText(Path.Join(dir, "staged.cs"), "staged change\n");
+            Git(dir, "add", "staged.cs");
+            File.WriteAllText(Path.Join(dir, "edited.cs"), "unstaged change\n");
+            File.WriteAllText(Path.Join(dir, "untracked.cs"), "new\n");
+            File.WriteAllText(Path.Join(dir, "ignored.cs"), "ignored\n");
+
+            string diff = await GitDiff.RunUncommittedAsync(dir, 3, default);
+            Assert.Contains("staged change", diff);
+            Assert.Contains("unstaged change", diff);
+            Assert.DoesNotContain("untracked.cs", diff);
+            Assert.Equal(["untracked.cs"], await GitDiff.ListUntrackedAsync(dir, default));
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
     public async Task Incremental_review_only_includes_new_fix_commit_changes()
     {
         string dir = Path.Combine(Path.GetTempPath(), "smartwizz-" + Guid.NewGuid().ToString("N"));
