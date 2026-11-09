@@ -26,16 +26,22 @@ public sealed class RuleCatalogTests
         }
         """;
 
+    // One added line per path: enough for path-scoped selection.
+    internal static List<FileDiff> Diff(params string[] paths) =>
+        [.. paths.SelectMany(p => GitDiff.Parse($"diff --git a/{p} b/{p}\n--- a/{p}\n+++ b/{p}\n@@ -0,0 +1,1 @@\n+x\n"))];
+
+    static IEnumerable<string> Ids(RuleSelection s) => s.Rules.Select(rule => rule.Id);
+
     [Fact]
     public void Selects_only_llm_rules_applicable_to_batch_files()
     {
         var catalog = RuleCatalog.Parse(Sample);
         Assert.Equal("1.2.3", catalog.Version);
         Assert.Equal(64, catalog.Sha256.Length);
-        Assert.Equal(["standard-cs-null"], catalog.Select(["src/Calc.cs"]).Select(rule => rule.Id));
-        Assert.Equal(["standard-ts-alias"], catalog.Select(["web/page.tsx"]).Select(rule => rule.Id));
-        Assert.Equal(2, catalog.Select(["src/Calc.cs", "web/page.ts"]).Count);
-        Assert.Empty(catalog.Select(["README.md"]));
+        Assert.Equal(["standard-cs-null"], Ids(catalog.Select(Diff("src/Calc.cs"))));
+        Assert.Equal(["standard-ts-alias"], Ids(catalog.Select(Diff("web/page.tsx"))));
+        Assert.Equal(2, catalog.Select(Diff("src/Calc.cs", "web/page.ts")).Rules.Count);
+        Assert.Empty(catalog.Select(Diff("README.md")).Rules);
         Assert.Equal(catalog.Sha256, RuleCatalog.Parse(Sample).Sha256);
     }
 
@@ -43,7 +49,7 @@ public sealed class RuleCatalogTests
     public void Selected_prompt_contains_ids_examples_and_exceptions_not_irrelevant_rules()
     {
         var catalog = RuleCatalog.Parse(Sample);
-        string prompt = RuleCatalog.BuildPrompt("BASE", catalog.Select(["web/app.ts"]));
+        string prompt = RuleCatalog.BuildPrompt("BASE", catalog.Select(Diff("web/app.ts")));
         Assert.Contains("standard-ts-alias", prompt);
         Assert.Contains("import x from '../../x'", prompt);
         Assert.Contains("Third-party modules", prompt);
@@ -51,7 +57,7 @@ public sealed class RuleCatalogTests
         Assert.DoesNotContain("standard-manual", prompt);
         Assert.DoesNotContain("standard-static", prompt);
 
-        string noRules = RuleCatalog.BuildPrompt("BASE", catalog.Select(["README.md"]));
+        string noRules = RuleCatalog.BuildPrompt("BASE", catalog.Select(Diff("README.md")));
         Assert.Contains("Do not emit standard-*", noRules);
     }
 
@@ -74,10 +80,10 @@ public sealed class RuleCatalogTests
         var catalog = RuleCatalog.Load(rulesPath);
 
         Assert.Equal(172, catalog.Rules.Count);
-        Assert.Empty(catalog.Select(["README.md"]));
-        Assert.Contains(catalog.Select(["src/Code.cs"]), rule => rule.Id == "standard-4-1-05");
-        Assert.Contains(catalog.Select(["web/src/App.tsx"]), rule => rule.Id == "standard-9-ts-08");
-        Assert.DoesNotContain(catalog.Select(["src/Code.cs"]), rule => rule.Id == "standard-9-ts-08");
+        Assert.Empty(catalog.Select(Diff("README.md")).Rules);
+        Assert.Contains("standard-4-1-05", Ids(catalog.Select(Diff("src/Code.cs"))));
+        Assert.Contains("standard-9-ts-08", Ids(catalog.Select(Diff("web/src/App.tsx"))));
+        Assert.DoesNotContain("standard-9-ts-08", Ids(catalog.Select(Diff("src/Code.cs"))));
     }
 
     [Fact]
@@ -110,14 +116,14 @@ public sealed class RuleCatalogTests
         });
 
         var catalog = RuleCatalog.Parse(Sample);
-        var allowed = catalog.Select(["src/Calc.cs"]).Select(rule => rule.Id).ToHashSet();
+        Dictionary<string, string> allowed = catalog.Select(Diff("src/Calc.cs")).AllowedIds;
         Assert.Single(Review.Parse(Finding("standard-cs-null"), files, 0.5, [], allowed));
         Assert.Single(Review.Parse(Finding("null-dereference"), files, 0.5, [], allowed));
         var unknown = new List<string>();
         Assert.Empty(Review.Parse(Finding("standard-made-up"), files, 0.5, unknown, allowed));
         Assert.Contains("unknown or inapplicable", Assert.Single(unknown));
         Assert.Empty(Review.Parse(Finding("standard-ts-alias"), files, 0.5, [], allowed));
-        Assert.Empty(Review.Parse(Finding("standard-cs-null"), files, 0.5, [], new HashSet<string>()));
+        Assert.Empty(Review.Parse(Finding("standard-cs-null"), files, 0.5, [], new Dictionary<string, string>()));
     }
 
     [Fact]

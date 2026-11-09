@@ -6,7 +6,7 @@ Report:
 - Missing tests: new or changed non-trivial logic with no corresponding test change in the diff. Anchor the finding on the changed logic.
 
 Do not report:
-- Style, formatting, naming, or documentation preferences.
+- Style, formatting, naming, or documentation preferences, unless a listed standard check covers them.
 - Speculation you cannot support from the visible code.
 - Problems in unchanged code unless the change makes them reachable.
 - The same problem more than once.

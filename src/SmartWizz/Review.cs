@@ -31,6 +31,8 @@ public sealed class ReviewResult
     public List<string> Rejected { get; } = [];
     public string? RulesetVersion { get; set; }
     public string? RulesetSha256 { get; set; }
+    // Standard checks that applied to a batch but exceeded review.maxStandardChecksPerRequest.
+    public List<string> OmittedStandardChecks { get; } = [];
     public long SystemPromptCharacters { get; set; }
     public long UserPromptCharacters { get; set; }
     public long? PromptTokens { get; set; }
@@ -78,8 +80,10 @@ public static partial class Review
         // Sequential on purpose: keeps request rate and provider quota use predictable.
         foreach (List<FileDiff> b in batches)
         {
-            List<EngineeringRule>? selected = catalog?.Select(b.Select(f => f.Path));
+            RuleSelection? selected = catalog?.Select(b, cfg.MaxStandardChecksPerRequest);
             string prompt = selected is null ? systemPrompt : RuleCatalog.BuildPrompt(systemPrompt, selected);
+            foreach (string omitted in selected?.Omitted ?? [])
+                if (!result.OmittedStandardChecks.Contains(omitted)) result.OmittedStandardChecks.Add(omitted);
             string userMessage = BuildUserMessage(b, files.Select(f => f.Path));
             result.SystemPromptCharacters += prompt.Length;
             result.UserPromptCharacters += userMessage.Length;
@@ -91,8 +95,7 @@ public static partial class Review
             }
             else completeUsage = false;
             if (!result.Models.Contains(reply.Model)) result.Models.Add(reply.Model);
-            var allowedRuleIds = selected?.Select(rule => rule.Id).ToHashSet(StringComparer.Ordinal);
-            all.AddRange(Parse(reply.Content, b.ToDictionary(f => f.Path), cfg.MinConfidence, result.Rejected, allowedRuleIds));
+            all.AddRange(Parse(reply.Content, b.ToDictionary(f => f.Path), cfg.MinConfidence, result.Rejected, selected?.AllowedIds));
             result.ReviewedFiles += b.Count;
         }
 
@@ -140,7 +143,7 @@ public static partial class Review
 
     public static List<Finding> Parse(
         string reply, IReadOnlyDictionary<string, FileDiff> files, double minConfidence, List<string> rejected,
-        IReadOnlySet<string>? allowedRuleIds = null)
+        IReadOnlyDictionary<string, string>? standardIds = null)
     {
         // Tolerates prose or ```json fences around the object.
         int start = reply.IndexOf('{'), end = reply.LastIndexOf('}');
@@ -161,7 +164,7 @@ public static partial class Review
             var list = new List<Finding>();
             foreach (JsonElement e in arr.EnumerateArray())
             {
-                Finding? f = Validate(e, files, minConfidence, allowedRuleIds, out string? reason);
+                Finding? f = Validate(e, files, minConfidence, standardIds, out string? reason);
                 if (f is null) rejected.Add(reason);
                 else list.Add(f);
             }
@@ -170,7 +173,7 @@ public static partial class Review
     }
 
     static Finding? Validate(JsonElement e, IReadOnlyDictionary<string, FileDiff> files, double minConfidence,
-        IReadOnlySet<string>? allowedRuleIds, out string reason)
+        IReadOnlyDictionary<string, string>? standardIds, out string reason)
     {
         reason = "";
         if (e.ValueKind != JsonValueKind.Object) return Reject(out reason, "finding is not an object");
@@ -203,9 +206,14 @@ public static partial class Review
             return Reject(out reason, $"{path}:{start}: below minConfidence");
 
         ruleId = Sanitize(ruleId, false);
-        if (ruleId.StartsWith("standard-", StringComparison.OrdinalIgnoreCase) && allowedRuleIds is not null
-            && !allowedRuleIds.Contains(ruleId))
-            return Reject(out reason, $"{path}:{start}: unknown or inapplicable standard ruleId {ruleId}");
+        // Standard findings are reported under the catalog rule, whatever check ID the model used.
+        if (standardIds is not null && (ruleId.StartsWith("standard-", StringComparison.OrdinalIgnoreCase)
+            || ruleId.StartsWith("std-", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (!standardIds.TryGetValue(ruleId, out string? reported))
+                return Reject(out reason, $"{path}:{start}: unknown or inapplicable standard ruleId {ruleId}");
+            ruleId = reported;
+        }
         // Optional: a malformed suggestion never costs the finding itself.
         string? fix = e.TryGetProperty("suggestedFix", out JsonElement s) && s.ValueKind == JsonValueKind.String ? CleanCode(s.GetString()!) : null;
         return new Finding(ruleId, sev.Value, Cap(Sanitize(title, false), 200), Cap(Sanitize(message, true), 4000), path, start.Value,

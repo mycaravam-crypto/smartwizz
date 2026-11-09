@@ -203,6 +203,8 @@ See [`smartwizz.example.json`](smartwizz.example.json). Notable settings:
 - `provider.temperature` — `null` to omit for models that reject it.
 - `provider.maxRetries` (default 2) and `provider.fallbackModels` (default none) — see *Overload handling* below.
 - `review.guidelines` — path (relative to the config file) to a trusted versioned [JSON engineering rule catalog](rules/README.md) (`rules/engineering-rules.json`, default) or legacy Markdown standard. Only applicable LLM rules are injected per request batch. JSON standards enforce an exact `standard-*` rule ID allowlist and record `rulesetVersion` / `rulesetSha256` in the report. Keep this file in the trusted SmartWizz checkout in CI, never the untrusted PR.
+- `review.llmChecks` — optional path (relative to the config file) to [`rules/llm-checks.json`](rules/README.md#llm-checks): the catalog's LLM rules aggregated into short checks that are sent only when a trigger matches an added line. Recommended for small local models. Requires a JSON `guidelines` catalog.
+- `review.maxStandardChecksPerRequest` — `0` (default) sends every applicable standard check; a positive number keeps only that many per request, highest severity first. Dropped checks are listed in the console and as `omittedStandardChecks` in the JSON report.
 
 Secrets are read only from the environment. For local runs you can put them in a git-ignored `./.env` (see [`.env.example`](.env.example)). Variables that are already set take precedence.
 
@@ -364,6 +366,7 @@ Same checks as CI (`.github/workflows/ci.yml`):
 
 ```sh
 python3 tools/engineering_rules.py --check  # generated Markdown has not drifted
+python3 tools/llm_checks.py --check         # LLM checks cover every llm rule exactly once
 dotnet format --verify-no-changes   # whitespace + .editorconfig style; run `dotnet format` to fix
 dotnet build -c Release             # analyzers + code style enforced, warnings are errors
 dotnet test -c Release

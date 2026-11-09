@@ -23,6 +23,7 @@ public static class Report
         r.Models,
         r.RulesetVersion,
         r.RulesetSha256,
+        r.OmittedStandardChecks,
         r.SystemPromptCharacters,
         r.UserPromptCharacters,
         r.PromptTokens,
@@ -103,6 +104,11 @@ public static class Report
         {
             w.WriteLine();
             w.WriteLine("Rejected: " + string.Join("; ", r.Rejected));
+        }
+        if (r.OmittedStandardChecks.Count > 0)
+        {
+            w.WriteLine();
+            w.WriteLine("Standard checks not sent (review.maxStandardChecksPerRequest): " + string.Join(", ", r.OmittedStandardChecks));
         }
     }
 }

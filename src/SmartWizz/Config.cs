@@ -28,11 +28,20 @@ public sealed class Config
             throw new SmartWizzException(FailureKind.Configuration, $"config file not found: {path}");
 
         // Relative to the config file, so CI resolves it inside the trusted SmartWizz checkout, not the PR.
+        string configDir = Path.GetDirectoryName(Path.GetFullPath(path ?? "smartwizz.json"))!;
         if (cfg.Review.Guidelines is { } g)
         {
-            cfg.Review.Guidelines = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path ?? "smartwizz.json"))!, g);
+            cfg.Review.Guidelines = Path.Combine(configDir, g);
             if (!File.Exists(cfg.Review.Guidelines))
                 throw new SmartWizzException(FailureKind.Configuration, $"guidelines file not found: {cfg.Review.Guidelines}");
+        }
+        if (cfg.Review.LlmChecks is { } checks)
+        {
+            if (cfg.Review.Guidelines is null || !Path.GetExtension(cfg.Review.Guidelines).Equals(".json", StringComparison.OrdinalIgnoreCase))
+                throw new SmartWizzException(FailureKind.Configuration, "review.llmChecks requires review.guidelines to be a JSON rule catalog");
+            cfg.Review.LlmChecks = Path.Combine(configDir, checks);
+            if (!File.Exists(cfg.Review.LlmChecks))
+                throw new SmartWizzException(FailureKind.Configuration, $"LLM checks file not found: {cfg.Review.LlmChecks}");
         }
 
         // Lets CI point at an internal endpoint/model without a separate config file.
@@ -70,6 +79,7 @@ public sealed class Config
             : cfg.Review.ContextLines < 0 ? "review.contextLines must not be negative"
             : cfg.Review.MaxCharsPerRequest <= 0 ? "review.maxCharsPerRequest must be greater than 0"
             : cfg.Review.MinConfidence is < 0 or > 1 ? "review.minConfidence must be between 0 and 1"
+            : cfg.Review.MaxStandardChecksPerRequest < 0 ? "review.maxStandardChecksPerRequest must not be negative"
             : null;
         if (error is not null)
             throw new SmartWizzException(FailureKind.Configuration, error);
@@ -126,6 +136,10 @@ public sealed class ReviewConfig
     public double MinConfidence { get; set; } = 0.5;
     // Optional markdown engineering standard checked in addition to bugs/security/tests.
     public string? Guidelines { get; set; }
+    // Optional aggregated, trigger-gated checks for the JSON catalog in Guidelines (see rules/README.md).
+    public string? LlmChecks { get; set; }
+    // 0 = no limit. Small models follow a few checks better than many; the highest-severity ones are kept.
+    public int MaxStandardChecksPerRequest { get; set; }
     public string[] Exclude { get; set; } =
     [
         "*.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "packages.lock.json",

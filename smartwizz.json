@@ -8,6 +8,7 @@
     ]
   },
   "review": {
-    "guidelines": "rules/engineering-rules.json"
+    "guidelines": "rules/engineering-rules.json",
+    "llmChecks": "rules/llm-checks.json"
   }
 }

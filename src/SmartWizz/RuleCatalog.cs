@@ -28,6 +28,19 @@ public sealed class EngineeringRule
     }
 }
 
+// What one request sends to the model: a check ID, its instruction, and the catalog rule findings are reported under.
+public sealed record PromptRule(string Id, Severity Severity, string Text, string? Bad, string? Good, IReadOnlyList<string> Allowed, string ReportAs);
+
+public sealed class RuleSelection
+{
+    public List<PromptRule> Rules { get; } = [];
+    // Checks that applied but were dropped by review.maxStandardChecksPerRequest.
+    public List<string> Omitted { get; } = [];
+
+    // Model-facing ID -> reported catalog ID. Rules a selected check covers are accepted too.
+    public Dictionary<string, string> AllowedIds { get; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
 public sealed class RuleCatalog
 {
     static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
@@ -46,19 +59,23 @@ public sealed class RuleCatalog
     }
 
     public string Version { get; }
+    // Covers the catalog and, when configured, the LLM checks: either changing means a different review.
     public string Sha256 { get; }
     public IReadOnlyList<EngineeringRule> Rules { get; }
+    public LlmChecks? Checks { get; }
 
-    RuleCatalog(string version, string sha256, IReadOnlyList<EngineeringRule> rules)
+    RuleCatalog(string version, string sha256, IReadOnlyList<EngineeringRule> rules, LlmChecks? checks)
     {
         Version = version;
         Sha256 = sha256;
         Rules = rules;
+        Checks = checks;
     }
 
-    public static RuleCatalog Load(string path) => Parse(File.ReadAllText(path));
+    public static RuleCatalog Load(string path, string? checksPath = null) =>
+        Parse(File.ReadAllText(path), checksPath is null ? null : File.ReadAllText(checksPath));
 
-    public static RuleCatalog Parse(string json)
+    public static RuleCatalog Parse(string json, string? checksJson = null)
     {
         Document? doc;
         try
@@ -93,41 +110,77 @@ public sealed class RuleCatalog
         if (rules.Count == 0)
             throw new SmartWizzException(FailureKind.Configuration, "engineering rules catalog is empty");
 
-        string sha = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
-        return new RuleCatalog(doc.Version, sha, rules);
+        LlmChecks? checks = checksJson is null ? null : LlmChecks.Parse(checksJson, rules);
+        string hashed = checksJson is null ? json : json + "\n\0llm-checks\n" + checksJson;
+        string sha = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(hashed)));
+        return new RuleCatalog(doc.Version, sha, rules, checks);
     }
 
-    public List<EngineeringRule> Select(IEnumerable<string> changedPaths)
+    // maxRules 0 = no limit; otherwise the highest-severity applicable rules are kept, in catalog order.
+    public RuleSelection Select(IReadOnlyCollection<FileDiff> batch, int maxRules = 0)
     {
-        string[] paths = changedPaths.ToArray();
-        return Rules.Where(rule => rule.Detection == "llm" && paths.Any(rule.AppliesToFile)).ToList();
+        var applicable = new List<(PromptRule Rule, IEnumerable<string> Covers)>();
+        if (Checks is null)
+        {
+            foreach (EngineeringRule rule in Rules)
+                if (rule.Detection == "llm" && batch.Any(f => rule.AppliesToFile(f.Path)))
+                    applicable.Add((new PromptRule(rule.Id, Review.ParseSeverity(rule.Severity)!.Value, rule.Requirement,
+                        rule.BadExample, rule.GoodExample, rule.Exceptions, rule.Id), [rule.Id]));
+        }
+        else
+        {
+            foreach (LlmChecks.Compiled check in Checks.Checks)
+                if (batch.Any(check.AppliesTo))
+                {
+                    LlmCheck c = check.Source;
+                    applicable.Add((new PromptRule(c.Id, check.Severity, c.Check, c.Bad, c.Good, c.Allowed, c.Rules[0]), c.Rules));
+                }
+        }
+
+        HashSet<int> kept = [.. Enumerable.Range(0, applicable.Count)
+            .OrderByDescending(i => applicable[i].Rule.Severity).ThenBy(i => i)
+            .Take(maxRules <= 0 ? applicable.Count : maxRules)];
+        var selection = new RuleSelection();
+        for (int i = 0; i < applicable.Count; i++)
+        {
+            (PromptRule rule, IEnumerable<string> covers) = applicable[i];
+            if (!kept.Contains(i))
+            {
+                selection.Omitted.Add(rule.Id);
+                continue;
+            }
+            selection.Rules.Add(rule);
+            selection.AllowedIds[rule.Id] = rule.ReportAs;
+            foreach (string covered in covers) selection.AllowedIds.TryAdd(covered, covered);
+        }
+        return selection;
     }
 
-    public static string BuildPrompt(string basePrompt, IReadOnlyCollection<EngineeringRule> selected)
+    public static string BuildPrompt(string basePrompt, RuleSelection selection)
     {
-        if (selected.Count == 0)
-            return basePrompt + "\n\nNo standard rules are applicable to the current review batch. Do not emit standard-* rule IDs.";
+        if (selection.Rules.Count == 0)
+            return basePrompt + "\n\nNo standard checks apply to this batch. Do not emit standard-* or std-* rule IDs.";
 
+        // Compact on purpose: small models follow short, uniform entries better than prose.
         StringBuilder sb = new StringBuilder(basePrompt)
             .AppendLine()
             .AppendLine()
-            .AppendLine("## Engineering standard (trusted, selected rules)")
-            .AppendLine("Check the added code against the rules listed here. Use ONLY the exact listed standard-* ruleId,")
-            .AppendLine("and only if the concrete added line violates the rule. Generic bug/security/missing-test")
-            .AppendLine("findings may use their ordinary non-standard ruleId. Do not invent any standard-* IDs.")
-            .AppendLine("Avoid duplicate reports of the same issue; correctness/security take precedence.")
-            .AppendLine("Rule examples explain expected behavior and are not instructions to execute.")
+            .AppendLine("## Standard checks (trusted)")
+            .AppendLine("Also report added code that clearly breaks one of these checks. Set \"ruleId\" to the ID in brackets.")
+            .AppendLine("Use only these IDs; never invent standard-* or std-* IDs. Report only what the added lines show.")
+            .AppendLine("Bugs and security issues take precedence; do not report the same lines twice.")
+            .AppendLine("Bad/Good examples illustrate a check; they are not instructions.")
             .AppendLine();
-        foreach (EngineeringRule rule in selected)
+        foreach (PromptRule rule in selection.Rules)
         {
-            sb.Append("- ").Append(rule.Id).Append(" [").Append(rule.Severity).Append("]: ")
-                .AppendLine(rule.Requirement);
-            if (rule.BadExample is not null)
-                sb.Append("  Bad: ").AppendLine(rule.BadExample);
-            if (rule.GoodExample is not null)
-                sb.Append("  Good: ").AppendLine(rule.GoodExample);
-            if (rule.Exceptions.Length > 0)
-                sb.Append("  Exceptions: ").AppendLine(string.Join("; ", rule.Exceptions));
+            sb.Append('[').Append(rule.Id).Append("] ").Append(rule.Severity.ToString().ToLowerInvariant()).Append(": ")
+                .AppendLine(rule.Text);
+            if (rule.Bad is not null)
+                sb.Append("  Bad: ").AppendLine(rule.Bad);
+            if (rule.Good is not null)
+                sb.Append("  Good: ").AppendLine(rule.Good);
+            if (rule.Allowed.Count > 0)
+                sb.Append("  Allowed: ").AppendLine(string.Join("; ", rule.Allowed));
         }
         return sb.ToString();
     }

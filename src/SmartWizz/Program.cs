@@ -127,7 +127,7 @@ public static class Program
             Console.Error.WriteLine("warning: provider endpoint uses plain HTTP; code and API key are sent unencrypted");
         string? guidelines = cfg.Review.Guidelines;
         RuleCatalog? catalog = guidelines is not null && Path.GetExtension(guidelines).Equals(".json", StringComparison.OrdinalIgnoreCase)
-            ? RuleCatalog.Load(guidelines) : null;
+            ? RuleCatalog.Load(guidelines, cfg.Review.LlmChecks) : null;
         string? legacyStandard = guidelines is not null && catalog is null ? await File.ReadAllTextAsync(guidelines, ct) : null;
         string systemPrompt = Review.SystemPrompt(LoadPrompt("code-review.md"), legacyStandard);
         string revalidationPrompt = LoadPrompt("revalidate.md");
