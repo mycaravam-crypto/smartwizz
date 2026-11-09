@@ -144,7 +144,7 @@ public class ReviewTests
         var stub = new StubHandler((_, _) => StubHandler.Chat(One(Good)));
         var provider = new Provider(new HttpClient(stub), new ProviderConfig { Endpoint = "http://x/v1/chat/completions", Model = "m" }, null);
 
-        ReviewResult result = await Review.RunAsync(GitDiff.Parse(GitDiffTests.Sample), new ReviewConfig(), provider, "sys", default);
+        ReviewResult result = await Review.RunAsync(GitDiff.Parse(GitDiffTests.Sample), new ReviewConfig(), provider, TestPrompts.Default, default);
 
         Assert.Single(stub.Requests);
         Assert.Equal(1, result.ReviewedFiles);
@@ -157,7 +157,7 @@ public class ReviewTests
 
     [Fact]
     public void User_message_nonce_differs_per_call() =>
-        Assert.NotEqual(Review.BuildUserMessage([], []), Review.BuildUserMessage([], []));
+        Assert.NotEqual(Review.BuildDiff([], [], Review.NewNonce()), Review.BuildDiff([], [], Review.NewNonce()));
 
     [Fact]
     public void Staged_mode_requires_no_base_and_rejects_pr_or_checkpoint_options()

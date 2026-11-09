@@ -23,3 +23,8 @@ public sealed class StubHandler(Func<HttpRequestMessage, string?, HttpResponseMe
     public static HttpResponseMessage Chat(string content) =>
         Json(JsonSerializer.Serialize(new { choices = new[] { new { message = new { role = "assistant", content } } } }));
 }
+
+public static class TestPrompts
+{
+    public static readonly ReviewPrompts Default = new("SYSTEM", "REVIEW", "RECHECK", "STANDARDS");
+}

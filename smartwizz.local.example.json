@@ -6,7 +6,10 @@
     "model": "your-local-model",
     "temperature": 0,
     "timeoutSeconds": 600, // local inference is slow on large batches
-    "maxRetries": 1
+    "maxRetries": 1,
+    // Constrain replies to the finding schema. llama.cpp server, vLLM, Ollama 0.5+ and LM Studio support it;
+    // set to false if the server answers 400.
+    "jsonSchema": true
   },
   "review": {
     "ruleset": "rulesets/engineering-standard.json", // swap this file to review against another coding guide

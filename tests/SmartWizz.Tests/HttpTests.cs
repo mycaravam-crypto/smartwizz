@@ -62,6 +62,40 @@ public class ProviderTests
         await Assert.ThrowsAsync<SmartWizzException>(() =>
             Make(new StubHandler((_, _) => throw new HttpRequestException("refused"))).CompleteAsync("s", "u", default));
 
+    static readonly OutputSchema Schema = Review.FindingsSchema(["a.cs"], null);
+
+    [Fact]
+    public async Task Rejected_response_format_names_the_setting_and_is_not_retried()
+    {
+        var h = new StubHandler((_, _) => StubHandler.Json("""{"error":"unknown field response_format"}""", HttpStatusCode.BadRequest));
+        var cfg = new ProviderConfig { Endpoint = "http://x", Model = "m", JsonSchema = true, FallbackModels = ["backup"] };
+        SmartWizzException e = await Assert.ThrowsAsync<SmartWizzException>(() => Make(h, cfg).CompleteAsync("s", "u", default, Schema));
+        Assert.Equal(FailureKind.Configuration, e.Kind);
+        Assert.Contains("provider.jsonSchema", e.Message);
+        Assert.Single(h.Requests);
+        Assert.Equal("error [configuration]", Program.Failure(e, false).Message[..21]);
+
+        // Without the schema, a 400 stays a provider error.
+        var plain = new StubHandler((_, _) => StubHandler.Json("bad", HttpStatusCode.BadRequest));
+        e = await Assert.ThrowsAsync<SmartWizzException>(() =>
+            Make(plain, cfg).CompleteAsync("s", "u", default));
+        Assert.Equal(FailureKind.Provider, e.Kind);
+    }
+
+    [Fact]
+    public async Task Schema_is_sent_only_when_enabled()
+    {
+        var h = new StubHandler((_, _) => StubHandler.Chat("ok"));
+        await Make(h, new ProviderConfig { Endpoint = "http://x", Model = "m", JsonSchema = true }).CompleteAsync("s", "u", default, Schema);
+        await Make(h, new ProviderConfig { Endpoint = "http://x", Model = "m" }).CompleteAsync("s", "u", default, Schema);
+        using var doc = JsonDocument.Parse(h.Requests[0].Body!);
+        JsonElement format = doc.RootElement.GetProperty("response_format");
+        Assert.Equal("json_schema", format.GetProperty("type").GetString());
+        Assert.Equal("findings", format.GetProperty("json_schema").GetProperty("name").GetString());
+        Assert.Equal(JsonValueKind.Object, format.GetProperty("json_schema").GetProperty("schema").ValueKind);
+        Assert.DoesNotContain("response_format", h.Requests[1].Body);
+    }
+
     [Fact]
     public async Task Missing_endpoint_is_reported() =>
         await Assert.ThrowsAsync<SmartWizzException>(() =>

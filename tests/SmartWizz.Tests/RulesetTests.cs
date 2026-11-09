@@ -35,8 +35,30 @@ public sealed class RulesetTests
             filePath = path, startLine = line, confidence = 0.9 } }
     });
 
-    static Provider Provider(StubHandler stub) =>
-        new(new HttpClient(stub), new ProviderConfig { Endpoint = "http://x/v1/chat/completions", Model = "m" }, null);
+    static Provider Provider(StubHandler stub, bool jsonSchema = false) =>
+        new(new HttpClient(stub), new ProviderConfig { Endpoint = "http://x/v1/chat/completions", Model = "m", JsonSchema = jsonSchema }, null);
+
+    static readonly ReviewPrompts Prompts = new("SHARED-SYSTEM", "GENERAL-TASK", "RECHECK", "STANDARDS-TASK");
+
+    static (string System, string User) Messages(string body)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(body);
+        System.Text.Json.JsonElement messages = doc.RootElement.GetProperty("messages");
+        return (messages[0].GetProperty("content").GetString()!, messages[1].GetProperty("content").GetString()!);
+    }
+
+    // Everything up to and including the END-DIFF marker line: the untrusted part, shared across passes.
+    static string DiffPrefix(string user)
+    {
+        string nonce = System.Text.RegularExpressions.Regex.Match(user, "BEGIN-DIFF-([0-9A-F]{16})\n").Groups[1].Value;
+        Assert.NotEmpty(nonce);
+        string marker = $"\nEND-DIFF-{nonce}\n";
+        return user[..(user.IndexOf(marker, StringComparison.Ordinal) + marker.Length)];
+    }
+
+    // Long enough that the test file is over half the batch, so its follow-up pass keeps the full, shared diff.
+    static readonly string[] LongTest = ["Assert.Equal(expectedTotal, calculator.Sum(firstValue, secondValue));",
+        "Assert.Equal(expectedCount, calculator.Count(firstValue, secondValue));"];
 
     [Fact]
     public void Loads_metadata_and_hashes_the_whole_file()
@@ -125,7 +147,7 @@ public sealed class RulesetTests
     [Fact]
     public async Task Checks_over_the_limit_run_in_extra_standards_only_passes()
     {
-        List<FileDiff> files = [.. Added("src/A.cs", "catch { }", "password = 1"), .. Added("tests/ATests.cs", "x")];
+        List<FileDiff> files = [.. Added("src/A.cs", "catch { }", "password = 1"), .. Added("tests/ATests.cs", LongTest)];
         int call = 0;
         var stub = new StubHandler((_, _) => StubHandler.Chat(++call switch
         {
@@ -133,20 +155,29 @@ public sealed class RulesetTests
             // A follow-up pass may only report its own checks: the bug finding is rejected, the check is kept.
             _ => """{"findings":[""" + Finding("std-weak-test", "tests/ATests.cs")[13..^2] + "," + Finding("null-dereference")[13..^2] + "]}",
         }));
-        ReviewResult result = await Review.RunAsync(files, new ReviewConfig { MaxChecksPerRequest = 2 }, Provider(stub),
-            "BASE", default, Rules, "STANDARDS");
+        ReviewResult result = await Review.RunAsync(files, new ReviewConfig { MaxChecksPerRequest = 2 }, Provider(stub), Prompts, default, Rules);
 
         Assert.Equal(2, result.Requests);
         Assert.Equal(2, stub.Requests.Count);
-        string first = stub.Requests[0].Body!, second = stub.Requests[1].Body!;
-        Assert.Contains("BASE", first);
-        Assert.Contains("std-secret", first);
-        Assert.Contains("std-swallowed", first);
-        Assert.DoesNotContain("std-weak-test", first);
-        Assert.Contains("STANDARDS", second);
-        Assert.DoesNotContain("BASE", second);
-        Assert.Contains("std-weak-test", second);
-        Assert.DoesNotContain("std-secret", second);
+        (string System, string User)[] requests = [.. stub.Requests.Select(r => Messages(r.Body!))];
+        (string firstTask, string secondTask) = (requests[0].User[DiffPrefix(requests[0].User).Length..], requests[1].User[DiffPrefix(requests[1].User).Length..]);
+
+        // Prefix-cache friendly: one system prompt, then the identical diff block (same nonce); only the task differs.
+        Assert.All(requests, r => Assert.Equal("SHARED-SYSTEM", r.System));
+        Assert.Equal(DiffPrefix(requests[0].User), DiffPrefix(requests[1].User));
+        Assert.Contains("File: src/A.cs", DiffPrefix(requests[1].User));
+
+        // Checks (trusted) only after the end marker, never in the untrusted block or the system prompt.
+        Assert.All(requests, r => Assert.DoesNotContain("[std-", DiffPrefix(r.User)));
+        Assert.All(requests, r => Assert.DoesNotContain("std-", r.System));
+        Assert.Contains("GENERAL-TASK", firstTask);
+        Assert.Contains("[std-secret]", firstTask);
+        Assert.Contains("[std-swallowed]", firstTask);
+        Assert.DoesNotContain("std-weak-test", firstTask);
+        Assert.Contains("STANDARDS-TASK", secondTask);
+        Assert.DoesNotContain("GENERAL-TASK", secondTask);
+        Assert.Contains("[std-weak-test]", secondTask);
+        Assert.DoesNotContain("std-secret", secondTask);
 
         Assert.Equal(["std-secret", "std-weak-test"], result.Findings.Select(f => f.RuleId).Order());
         Assert.Contains(result.Rejected, r => r.Contains("null-dereference"));
@@ -159,12 +190,86 @@ public sealed class RulesetTests
     }
 
     [Fact]
+    public async Task Follow_up_pass_sends_only_the_files_its_checks_apply_to()
+    {
+        // std-weak-test (pass 2) applies only to the small test file; the large source file is left out.
+        List<FileDiff> files =
+        [
+            .. Added("src/A.cs", ["catch { }", "password = 1", .. Enumerable.Range(0, 20).Select(i => $"int value{i} = Compute({i});")]),
+            .. Added("tests/BTests.cs", "x"),
+        ];
+        int call = 0;
+        var stub = new StubHandler((_, _) => StubHandler.Chat(++call switch
+        {
+            1 => """{"findings":[]}""",
+            // A finding on a file this pass did not send is rejected.
+            _ => """{"findings":[""" + Finding("std-weak-test", "tests/BTests.cs")[13..^2] + "," + Finding("std-weak-test", "src/A.cs")[13..^2] + "]}",
+        }));
+        ReviewResult result = await Review.RunAsync(files, new ReviewConfig { MaxChecksPerRequest = 2 }, Provider(stub), Prompts, default, Rules);
+
+        Assert.Equal(2, stub.Requests.Count);
+        (string System, string User)[] requests = [.. stub.Requests.Select(r => Messages(r.Body!))];
+        Assert.Contains("File: src/A.cs", requests[0].User);
+        Assert.Contains("File: tests/BTests.cs", requests[0].User);
+        Assert.Contains("File: tests/BTests.cs", requests[1].User);
+        Assert.DoesNotContain("src/A.cs", requests[1].User);
+        Assert.DoesNotContain("src/A.cs", stub.Requests[1].Body);
+
+        Finding kept = Assert.Single(result.Findings);
+        Assert.Equal(("std-weak-test", "tests/BTests.cs"), (kept.RuleId, kept.FilePath));
+        Assert.Contains(result.Rejected, r => r.Contains("src/A.cs: file not in reviewed diff"));
+
+        // The report counts what was actually sent.
+        Assert.True(requests[1].User.Length < requests[0].User.Length / 2);
+        Assert.Equal(requests.Sum(r => (long)r.User.Length), result.UserPromptCharacters);
+        Assert.Equal(requests.Sum(r => (long)r.System.Length), result.SystemPromptCharacters);
+    }
+
+    [Fact]
+    public async Task Json_schema_is_sent_only_when_enabled_and_follow_ups_enumerate_their_check_ids()
+    {
+        List<FileDiff> files = [.. Added("src/A.cs", "catch { }", "password = 1"), .. Added("tests/ATests.cs", LongTest)];
+        var stub = new StubHandler((_, _) => StubHandler.Chat("""{"findings":[]}"""));
+        await Review.RunAsync(files, new ReviewConfig { MaxChecksPerRequest = 2 }, Provider(stub, jsonSchema: true), Prompts, default, Rules);
+        await Review.RunAsync(files, new ReviewConfig { MaxChecksPerRequest = 2 }, Provider(stub), Prompts, default, Rules);
+
+        Assert.Equal(4, stub.Requests.Count);
+        System.Text.Json.Nodes.JsonNode Format(int i) => System.Text.Json.Nodes.JsonNode.Parse(stub.Requests[i].Body!)!["response_format"]!;
+        System.Text.Json.Nodes.JsonNode Finding(int i) => Format(i)["json_schema"]!["schema"]!["properties"]!["findings"]!["items"]!["properties"]!;
+        string[] Enum(System.Text.Json.Nodes.JsonNode? node) => [.. node!.AsArray().Select(v => v!.GetValue<string>())];
+
+        Assert.Equal("json_schema", Format(0)["type"]!.GetValue<string>());
+        Assert.Equal("findings", Format(0)["json_schema"]!["name"]!.GetValue<string>());
+        Assert.True(Format(0)["json_schema"]!["strict"]!.GetValue<bool>());
+        // Pass 1 keeps ruleId free (bug categories); the follow-up pass allows exactly the checks it was sent.
+        Assert.Null(Finding(0)["ruleId"]!["enum"]);
+        Assert.Equal(["std-weak-test"], Enum(Finding(1)["ruleId"]!["enum"]));
+        Assert.Equal(["low", "medium", "high", "critical"], Enum(Finding(0)["severity"]!["enum"]));
+        Assert.Equal(["src/A.cs", "tests/ATests.cs"], Enum(Finding(0)["filePath"]!["enum"]));
+
+        Assert.DoesNotContain("response_format", stub.Requests[2].Body);
+        Assert.DoesNotContain("response_format", stub.Requests[3].Body);
+    }
+
+    [Fact]
+    public void Schema_shaped_replies_with_null_optional_fields_parse()
+    {
+        var byPath = Added("src/A.cs", "catch { }").ToDictionary(f => f.Path);
+        const string reply = """
+            {"findings":[{"ruleId":"std-swallowed","severity":"medium","title":"t","message":"m","filePath":"src/A.cs",
+             "startLine":1,"endLine":null,"confidence":0.9,"suggestedFix":null}]}
+            """;
+        Finding f = Assert.Single(Review.Parse(reply, byPath, 0.5, [], ["std-swallowed"], standardsOnly: true));
+        Assert.Equal((null, null), (f.EndLine, f.SuggestedFix));
+    }
+
+    [Fact]
     public async Task Without_a_limit_or_ruleset_each_batch_is_one_request()
     {
         List<FileDiff> files = [.. Added("src/A.cs", "catch { }", "password = 1"), .. Added("tests/ATests.cs", "x")];
         var stub = new StubHandler((_, _) => StubHandler.Chat("""{"findings":[]}"""));
-        Assert.Equal(1, (await Review.RunAsync(files, new ReviewConfig(), Provider(stub), "BASE", default, Rules, "STANDARDS")).Requests);
-        ReviewResult plain = await Review.RunAsync(files, new ReviewConfig(), Provider(stub), "BASE", default);
+        Assert.Equal(1, (await Review.RunAsync(files, new ReviewConfig(), Provider(stub), Prompts, default, Rules)).Requests);
+        ReviewResult plain = await Review.RunAsync(files, new ReviewConfig(), Provider(stub), Prompts, default);
         Assert.Equal(1, plain.Requests);
         Assert.Null(plain.RulesetName);
         Assert.DoesNotContain("Standard checks", stub.Requests[1].Body);

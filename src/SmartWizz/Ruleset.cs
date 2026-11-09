@@ -161,13 +161,14 @@ public sealed class Ruleset
     public static List<List<Check>> Passes(List<Check> applicable, int maxPerPass) =>
         maxPerPass <= 0 || applicable.Count <= maxPerPass ? [applicable] : [.. applicable.Chunk(maxPerPass).Select(c => c.ToList())];
 
-    // Compact on purpose: small models follow short, uniform entries better than prose.
-    public static string BuildPrompt(string basePrompt, IReadOnlyCollection<Check> checks, bool generalReview)
+    // The task text of one request: task plus its checks. Sent after the diff's end marker, so diff content cannot
+    // pose as checks. Compact on purpose: small models follow short, uniform entries better than prose.
+    public static string BuildPrompt(string task, IReadOnlyCollection<Check> checks, bool generalReview)
     {
         if (checks.Count == 0)
-            return basePrompt + "\n\nNo standard checks apply to this batch. Do not emit std-* rule IDs.";
+            return task + "\n\nNo standard checks apply to this batch. Do not emit std-* rule IDs.";
 
-        StringBuilder sb = new StringBuilder(basePrompt)
+        StringBuilder sb = new StringBuilder(task)
             .AppendLine()
             .AppendLine()
             .AppendLine("## Standard checks (trusted)")

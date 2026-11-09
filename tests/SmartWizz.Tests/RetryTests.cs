@@ -164,7 +164,7 @@ public class RetryTests
 
             """);
 
-        ReviewResult result = await Review.RunAsync(files, new ReviewConfig { MaxCharsPerRequest = 40 }, provider, "sys", default);
+        ReviewResult result = await Review.RunAsync(files, new ReviewConfig { MaxCharsPerRequest = 40 }, provider, TestPrompts.Default, default);
 
         Assert.Equal(["primary", "backup"], result.Models);
         var w = new StringWriter();
