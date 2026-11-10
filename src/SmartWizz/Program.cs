@@ -137,8 +137,9 @@ public static class Program
         // No client-wide timeout: Provider and AzureDevOpsPublisher bound every request with their configured timeout.
         using HttpClient http = new() { Timeout = Timeout.InfiniteTimeSpan };
         Provider provider = new(http, cfg.Provider, Environment.GetEnvironmentVariable("SMARTWIZZ_API_KEY"), log: Console.Error);
+        using ConsoleProgress progress = new(Console.Error, !opt.Problems && !Console.IsErrorRedirected);
         (ReviewPlan plan, ReviewResult result, ReviewCheckpoint? next) = await IncrementalReview.RunAsync(
-            opt, previous, cfg.Review, provider, prompts, reviewScope, ruleset, Console.Error, ct);
+            opt, previous, cfg.Review, provider, prompts, reviewScope, ruleset, Console.Error, ct, progress);
 
         if (opt.Problems) Report.WriteProblems(result, Console.Out);
         else Report.WriteConsole(result, Console.Out);
