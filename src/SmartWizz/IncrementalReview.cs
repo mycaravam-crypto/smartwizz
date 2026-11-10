@@ -14,7 +14,7 @@ public static class IncrementalReview
         : GitDiff.RunUncommittedAsync(opt.Repo, contextLines, ct);
 
     public static async Task<ReviewRun> RunAsync(Options opt, ReviewCheckpoint? previous, ReviewConfig cfg, Provider provider,
-        ReviewPrompts prompts, string reviewScope, Ruleset? ruleset, TextWriter log, CancellationToken ct)
+        ReviewPrompts prompts, string reviewScope, Ruleset? ruleset, TextWriter log, CancellationToken ct, IProgress<ReviewProgress>? progress = null)
     {
         if (opt.Staged || opt.Check)
         {
@@ -23,7 +23,7 @@ public static class IncrementalReview
             if (!opt.Staged && await GitDiff.ListUntrackedAsync(opt.Repo, ct) is { Count: > 0 } untracked)
                 log.WriteLine($"note: untracked, not reviewed (`git add -N <path>` includes them): {string.Join(", ", untracked)}");
             List<FileDiff> localFiles = GitDiff.Parse(await LocalDiffAsync(opt, cfg.ContextLines, ct));
-            ReviewResult localResult = await Review.RunAsync(localFiles, cfg, provider, prompts, ct, ruleset);
+            ReviewResult localResult = await Review.RunAsync(localFiles, cfg, provider, prompts, ct, ruleset, progress);
             return new ReviewRun(localPlan, localResult, null);
         }
 
@@ -33,7 +33,7 @@ public static class IncrementalReview
         List<FileDiff> toReview = plan.Mode == ReviewMode.Incremental
             ? OwnChanges(files, GitDiff.Parse(await GitDiff.RunAsync(opt.Repo, opt.Base!, opt.Head, cfg.ContextLines, ct)))
             : files;
-        ReviewResult result = await Review.RunAsync(toReview, cfg, provider, prompts, ct, ruleset);
+        ReviewResult result = await Review.RunAsync(toReview, cfg, provider, prompts, ct, ruleset, progress);
         if (opt.StateOut is null)
             return new ReviewRun(plan, result, null);
 
