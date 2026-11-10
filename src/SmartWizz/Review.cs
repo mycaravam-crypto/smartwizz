@@ -59,7 +59,7 @@ public static partial class Review
     const double NarrowBelow = 0.5;
 
     public static async Task<ReviewResult> RunAsync(
-        List<FileDiff> files, ReviewConfig cfg, Provider provider, ReviewPrompts prompts, CancellationToken ct, Ruleset? ruleset = null)
+        List<FileDiff> files, ReviewConfig cfg, Provider provider, ReviewPrompts prompts, CancellationToken ct, Ruleset? ruleset = null, IProgress<ReviewProgress>? progress = null)
     {
         var result = new ReviewResult
         {
@@ -95,6 +95,12 @@ public static partial class Review
             size += f.Annotated.Length;
         }
         if (batch.Count > 0) batches.Add(batch);
+
+        int totalFiles = batches.Sum(b => b.Count);
+        int totalRequests = ruleset is null
+            ? batches.Count
+            : batches.Sum(b => Ruleset.Passes(ruleset.Select(b), cfg.MaxChecksPerRequest).Count);
+        progress?.Report(new ReviewProgress("Reviewing", 0, totalRequests, 0, totalFiles));
 
         var all = new List<Finding>();
         long promptTokens = 0;
@@ -134,6 +140,7 @@ public static partial class Review
                 }
             }
             result.ReviewedFiles += b.Count;
+            progress?.Report(new ReviewProgress("Reviewing", result.Requests, totalRequests, result.ReviewedFiles, totalFiles));
 
             async Task<List<Finding>> AskAsync(string diff, string task, List<FileDiff> sent, List<string>? standardIds, bool standardsOnly)
             {
@@ -141,6 +148,7 @@ public static partial class Review
                 result.SystemPromptCharacters += prompts.System.Length;
                 result.UserPromptCharacters += userMessage.Length;
                 result.Requests++;
+                progress?.Report(new ReviewProgress("Reviewing", result.Requests - 1, totalRequests, result.ReviewedFiles, totalFiles, true));
                 // A standards-only pass may only use the IDs it was sent; elsewhere ruleId stays free (bug categories).
                 OutputSchema schema = FindingsSchema(sent.Select(f => f.Path), standardsOnly ? standardIds : null, cfg.SuggestFixes);
                 Completion reply = await provider.CompleteAsync(prompts.System, userMessage, ct, schema);
@@ -151,7 +159,9 @@ public static partial class Review
                 }
                 else completeUsage = false;
                 if (!result.Models.Contains(reply.Model)) result.Models.Add(reply.Model);
-                return Parse(reply.Content, sent.ToDictionary(f => f.Path), cfg.MinConfidence, result.Rejected, standardIds, standardsOnly);
+                List<Finding> findings = Parse(reply.Content, sent.ToDictionary(f => f.Path), cfg.MinConfidence, result.Rejected, standardIds, standardsOnly);
+                progress?.Report(new ReviewProgress("Reviewing", result.Requests, totalRequests, result.ReviewedFiles, totalFiles));
+                return findings;
             }
         }
 
