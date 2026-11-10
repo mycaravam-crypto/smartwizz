@@ -20,6 +20,23 @@ public class ConsoleProgressTests
     }
 
     [Fact]
+    public void Redirected_stderr_still_receives_progress_lines()
+    {
+        var output = new StringWriter();
+        using (var progress = new ConsoleProgress(output, enabled: true, interactive: false))
+        {
+            progress.Report(new ReviewProgress("Reviewing", 0, 2, 0, 3, RequestActive: true));
+            progress.Report(new ReviewProgress("Reviewing", 1, 2, 2, 3));
+        }
+
+        string rendered = output.ToString();
+        Assert.Contains("[....................]", rendered);
+        Assert.Contains("request 1/2", rendered);
+        Assert.Contains("1/2 requests", rendered);
+        Assert.Equal(2, rendered.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries).Length);
+    }
+
+    [Fact]
     public void Disabled_progress_does_not_write()
     {
         var output = new StringWriter();
