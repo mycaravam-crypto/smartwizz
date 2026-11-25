@@ -124,3 +124,7 @@ also accepts, so that `tools/ruleset.py` can test them.
 
 5. Measure: run the [benchmark](../benchmarks/README.md), or a few real PRs with known
    problems, on the model you will use, and compare findings before and after changes.
+
+## Severity enforcement (optional, schema version 1)
+
+Each check retains its existing `severity` and may specify `severityMode`: `advisory` (default, model severity), `minimum` (maximum of model and rule severity), or `fixed` (rule severity). Optional `categories` contains supported canonical finding categories, allowing general-review aliases to inherit the same applicable check policy. For example, add `"severityMode": "minimum", "categories": ["sql-injection"]` to an existing high-severity SQL-specific check. Do not map unrelated categories to broad checks. Policies apply only to matching checks whose file and trigger criteria hold. Conflicts use the highest effective policy severity. Fresh JSON reports include severityDecisions with the representative model severity, effective severity and policy rule IDs. Effective severity drives sorting, history and quality gates; the existing ruleset hash invalidates exact-input cache/checkpoint reuse when ruleset content changes. Historical metadata cache does not retain original model severity or policy provenance. Changing a ruleset also changes its history policy scope. Existing bundled rules remain advisory until explicitly configured.
