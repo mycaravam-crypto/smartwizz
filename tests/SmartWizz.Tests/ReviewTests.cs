@@ -248,7 +248,7 @@ public class ReviewTests
     [Fact]
     public async Task RunAsync_skips_unreviewable_files_and_batches_the_rest()
     {
-        var stub = new StubHandler((_, _) => StubHandler.Chat(One(Good)));
+        var stub = new StubHandler((_, _) => StubHandler.Chat(One(Good + ",\"sourceRef\":\"F1-L12\"")));
         var provider = new Provider(new HttpClient(stub), new ProviderConfig { Endpoint = "http://x/v1/chat/completions", Model = "m" }, null);
 
         ReviewResult result = await Review.RunAsync(GitDiff.Parse(GitDiffTests.Sample), new ReviewConfig(), provider, TestPrompts.Default, default);
