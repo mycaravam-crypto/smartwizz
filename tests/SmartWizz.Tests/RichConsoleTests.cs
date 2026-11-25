@@ -18,6 +18,9 @@ public class RichConsoleTests
         var result = new ReviewResult { ReviewedFiles = 1, Requests = 1 };
         result.Findings.Add(new Finding("test-rule", Severity.High, "Unsafe [red] text",
             "Review message", "src/Test.cs", 59, null, 0.95, "abc123", "Use safe configuration"));
+        result.ReviewElapsedMilliseconds = 1500;
+        result.RequestTimings.Add(new ReviewRequestTiming(1, "m", 1250, 1, 100, 200, 50, 10, 1, false));
+        result.FindingRequests.Add("abc123", 1);
         Report.WriteRichConsole(result, console);
         string rendered = output.ToString();
         Assert.Contains("HIGH", rendered);
@@ -26,6 +29,8 @@ public class RichConsoleTests
         Assert.Contains("Review message", rendered);
         Assert.Contains("Use safe configuration", rendered);
         Assert.Contains("abc123", rendered);
+        Assert.Contains("Request #1: 1.25s (shared call)", rendered);
+        Assert.Contains("LLM calls: 1.25s", rendered);
         Assert.DoesNotContain("SmartWizz: 1 finding", rendered);
         Assert.All(rendered.Split('\n'), line => Assert.True(line.TrimEnd().Length <= 110));
     }
