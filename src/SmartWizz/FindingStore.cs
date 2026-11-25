@@ -16,24 +16,16 @@ public static class FindingStore
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
-            string? encoded = Environment.GetEnvironmentVariable("SMARTWIZZ_HISTORY_KEY");
-            if (string.IsNullOrEmpty(encoded))
+            string directory = await HistoryKey.SafeDirectoryAsync(opt.Repo, ct);
+            byte[]? key = HistoryKey.Load(directory, opt.InitializeHistory);
+            if (key is null)
             {
-                log.WriteLine("warning: finding history requires SMARTWIZZ_HISTORY_KEY (32 random bytes, base64)");
+                log.WriteLine("warning: protected history key unavailable; review results are unaffected");
                 return;
             }
-            byte[] key = Convert.FromBase64String(encoded);
             try
             {
-                if (key.Length != 32) throw new ArgumentException("invalid history key");
                 string root = await GitDiff.RepositoryRootAsync(opt.Repo, ct);
-                string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                if (string.IsNullOrWhiteSpace(local)) throw new IOException("local application data unavailable");
-                string directory = Path.GetFullPath(Path.Combine(local, "smartwizz", "data"));
-                string relative = Path.GetRelativePath(root, directory);
-                if (!Path.IsPathRooted(relative) && relative != ".." &&
-                    !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
-                    throw new IOException("history must be outside the checkout");
                 Directory.CreateDirectory(directory);
                 string repository = Hash(key, "repository-v1", OperatingSystem.IsWindows() ? root.ToUpperInvariant() : root);
                 string selection = opt.Staged ? "staged" : opt.Check ? "working" : $"pr:{opt.Base}:{opt.Head}:{opt.PrId}";
@@ -43,7 +35,7 @@ public static class FindingStore
             }
             finally { CryptographicOperations.ZeroMemory(key); }
         }
-        catch (Exception e) when (e is SqliteException or IOException or UnauthorizedAccessException or FormatException or ArgumentException or SmartWizzException)
+        catch (Exception e) when (e is SqliteException or IOException or UnauthorizedAccessException or FormatException or ArgumentException or SmartWizzException or CryptographicException or PlatformNotSupportedException)
         {
             // Do not echo database errors or potentially sensitive paths or data.
             log.WriteLine("warning: finding history unavailable; review results are unaffected");
