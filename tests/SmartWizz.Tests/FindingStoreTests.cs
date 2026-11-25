@@ -93,7 +93,7 @@ public class FindingStoreTests
             string policy = FindingStore.PolicyScope("ruleset", null);
             ReviewResult cached = Make("hardcoded-secret", 59);
             cached.CacheHit = true;
-            FindingStore.ReadIdentities(database, key, "repo", policy, cached, default, "old-exact");
+            FindingStore.ReadIdentities(database, key, "repo", policy, cached, "old-exact", default);
             Assert.Equal(initial.PersistentFindingIds["fp"], cached.PersistentFindingIds["fp"]);
             ReviewResult adopted = Make("hardcoded-secret", 59);
             FindingStore.Record(database, key, "repo", policy, "revision", adopted, legacyScope: "old-exact");
