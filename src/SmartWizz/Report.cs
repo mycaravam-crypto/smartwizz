@@ -56,6 +56,8 @@ public static class Report
         r.PromptTokens,
         r.CompletionTokens,
         r.Checks,
+        r.RulesetCoverageScope,
+        r.RulesetNotChecked,
         r.Findings,
         r.SkippedFiles,
         r.Rejected,
