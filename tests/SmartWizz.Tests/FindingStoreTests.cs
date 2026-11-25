@@ -80,6 +80,48 @@ public class FindingStoreTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
+    [Fact]
+    public void Stable_policy_scope_adopts_legacy_identity_and_survives_review_configuration_changes()
+    {
+        string directory = Directory.CreateTempSubdirectory().FullName;
+        string database = Path.Combine(directory, "history.db");
+        byte[] key = new byte[32];
+        try
+        {
+            ReviewResult initial = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", "old-exact", "revision", initial);
+            string policy = FindingStore.PolicyScope("ruleset", null);
+            ReviewResult cached = Make("hardcoded-secret", 59);
+            cached.CacheHit = true;
+            FindingStore.ReadIdentities(database, key, "repo", policy, cached, default, "old-exact");
+            Assert.Equal(initial.PersistentFindingIds["fp"], cached.PersistentFindingIds["fp"]);
+            ReviewResult adopted = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", policy, "revision", adopted, legacyScope: "old-exact");
+            Assert.Equal(initial.PersistentFindingIds["fp"], adopted.PersistentFindingIds["fp"]);
+            ReviewResult later = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", policy, "revision", later, legacyScope: "different-exact");
+            Assert.Equal(initial.PersistentFindingIds["fp"], later.PersistentFindingIds["fp"]);
+            Assert.Equal(1, later.KnownFindings);
+            ReviewResult changedPolicy = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", FindingStore.PolicyScope("other-ruleset", null), "revision",
+                changedPolicy, legacyScope: "old-exact");
+            Assert.NotEqual(initial.PersistentFindingIds["fp"], changedPolicy.PersistentFindingIds["fp"]);
+            Assert.Equal(0, changedPolicy.KnownFindings);
+            using var db = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = database,
+                Pooling = false,
+            }.ToString());
+            db.Open();
+            using SqliteCommand command = db.CreateCommand();
+            command.CommandText = "SELECT SUM(observations) FROM findings";
+            Assert.Equal(4L, (long)command.ExecuteScalar()!);
+            command.CommandText = "SELECT COUNT(*) FROM findings";
+            Assert.Equal(2L, (long)command.ExecuteScalar()!);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     static ReviewResult Make(string rule, int line)
     {
         var result = new ReviewResult();
