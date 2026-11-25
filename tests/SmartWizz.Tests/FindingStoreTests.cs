@@ -122,6 +122,26 @@ public class FindingStoreTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
+    [Fact]
+    public void Historical_anchor_evidence_is_bounded_and_never_resolves_a_finding()
+    {
+        byte[] key = new byte[32];
+        var file = new FileDiff { Path = "PrivateFile.cs" };
+        file.NewLines.Add(58, "before");
+        file.NewLines.Add(59, "string Password = \"FAKE_TEST_SECRET\";");
+        file.NewLines.Add(60, "after");
+        file.AddedLines.Add(59);
+        string anchor = FindingStore.Hash(key, "anchor-v1", file.Path, "hardcoded-credential", Review.SourceAnchor(file, 59));
+        int budget = 10;
+        Assert.Equal(("exact-match", (int?)59), FindingStore.MatchHistoricalAnchor(key, file, "hardcoded-credential", anchor, ref budget, default));
+        Assert.Equal(9, budget);
+        Assert.Equal(("not-in-reviewed-diff", (int?)null), FindingStore.MatchHistoricalAnchor(key, null, "hardcoded-credential", anchor, ref budget, default));
+        file.NewLines[59] = "string Password = configurationValue;";
+        Assert.Equal(("not-matched", (int?)null), FindingStore.MatchHistoricalAnchor(key, file, "hardcoded-credential", anchor, ref budget, default));
+        budget = 0;
+        Assert.Equal(("not-checked", (int?)null), FindingStore.MatchHistoricalAnchor(key, file, "hardcoded-credential", anchor, ref budget, default));
+    }
+
     static ReviewResult Make(string rule, int line)
     {
         var result = new ReviewResult();
