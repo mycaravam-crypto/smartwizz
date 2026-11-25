@@ -28,7 +28,8 @@ internal static class CSharpAnalysis
             previous = number;
         }
         Scan();
-        return findings;
+        return candidates.Where(entry => entry.Value.Count == 1)
+            .ToDictionary(entry => entry.Key, entry => entry.Value.Single());
 
         void Scan()
         {
