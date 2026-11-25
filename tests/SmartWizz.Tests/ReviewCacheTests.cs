@@ -29,6 +29,10 @@ public class ReviewCacheTests
                 Assert.Equal(result.Findings[0].Fingerprint, finding.Fingerprint);
                 Assert.Null(finding.SuggestedFix);
                 Assert.Contains("Cached finding metadata", finding.Message);
+                Assert.Contains("--no-cache", finding.Message);
+                Assert.NotNull(cached.CacheCreatedUnixSeconds);
+                cache.Invalidate(default);
+                Assert.Null(cache.Read(files, new ReviewConfig(), null, "model", default));
             }
             using (var changed = new ReviewCache(path, new byte[32], "changed-input"))
                 Assert.Null(changed.Read(files, new ReviewConfig(), null, "model", default));
