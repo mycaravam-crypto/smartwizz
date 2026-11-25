@@ -42,6 +42,38 @@ public class ReviewCacheTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
+    [Theory]
+    [InlineData("std-custom-review", true)]
+    [InlineData("std-unknown-review", false)]
+    public void Configured_rule_metadata_roundtrips_without_hardcoded_allowlist(string rule, bool expected)
+    {
+        string directory = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            var ruleset = Ruleset.Parse("""
+                {"schemaVersion":1,"name":"Custom","version":"1","checks":[
+                  {"id":"std-custom-review","severity":"medium","files":["*.cs"],"check":"Review the changed code."}]}
+                """);
+            List<FileDiff> files = [new FileDiff { Path = "PRIVATE_FILE.cs" }];
+            files[0].AddedLines.Add(1);
+            files[0].NewLines.Add(1, "PRIVATE_SOURCE_SENTINEL");
+            var result = new ReviewResult { ReviewedFiles = 1, Requests = 1, RawDetections = 1, ActiveRuleset = ruleset };
+            result.Models.Add("model");
+            result.Findings.Add(new Finding(rule, Severity.Medium, "PRIVATE_MODEL_SENTINEL", "PRIVATE_MODEL_SENTINEL",
+                files[0].Path, 1, null, 0.9, Review.Fingerprint(rule, files[0].Path, files[0].NewLines[1])));
+            using var cache = new ReviewCache(Path.Combine(directory, "cache.db"), new byte[32], "input");
+            cache.Write(files, result, "model", default);
+            ReviewResult? cached = cache.Read(files, new ReviewConfig(), ruleset, "model", default);
+            if (expected)
+            {
+                Assert.Equal(rule, Assert.Single(Assert.IsType<ReviewResult>(cached).Findings).RuleId);
+                Assert.Null(cache.Read(files, new ReviewConfig(), null, "model", default));
+            }
+            else Assert.Null(cached);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     [Fact]
     public void Rejected_findings_prevent_caching()
     {
