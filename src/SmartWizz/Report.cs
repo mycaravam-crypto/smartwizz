@@ -104,7 +104,8 @@ public static class Report
 
     static string HistorySummary(List<HistoricalFinding> history) =>
         $"Historical findings not confirmed in this inspection: {history.Count} (unverified, not resolved); " +
-        $"exact source anchors still present: {history.Count(f => f.AnchorEvidence == "exact-match")}";
+        $"exact source anchors still present: {history.Count(f => f.AnchorEvidence == "exact-match")}; " +
+        $"local patterns present: {history.Count(f => f.PatternEvidence == "pattern-present")}";
 
     static string CacheSummary(ReviewResult r)
     {
