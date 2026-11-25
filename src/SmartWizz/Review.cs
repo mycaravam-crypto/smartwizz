@@ -36,6 +36,9 @@ public sealed class CheckCounts
 public sealed record ReviewRequestTiming(int Request, string Model, double ElapsedMilliseconds, int Files,
     int SystemCharacters, int UserCharacters, int? PromptTokens, int? CompletionTokens, int AcceptedFindings, bool StandardsOnly, int Attempts = 1, int? ReasoningTokens = null);
 
+public sealed record HistoricalFinding(string Id, string Category, Severity LastObservedSeverity, int LastObservedLine,
+    long LastSeenUnixSeconds, long Observations);
+
 public sealed class ReviewResult
 {
     public int ReviewedFiles { get; set; }
@@ -46,6 +49,7 @@ public sealed class ReviewResult
     public int RawDetections { get; set; }
     public int DuplicateDetections => Math.Max(0, RawDetections - Findings.Count);
     public int? KnownFindings { get; set; }
+    public List<HistoricalFinding>? UnverifiedHistory { get; set; }
     public double? HistoryElapsedMilliseconds { get; set; }
     public bool CacheHit { get; set; }
     public long? CacheCreatedUnixSeconds { get; set; }
