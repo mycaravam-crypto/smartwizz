@@ -400,3 +400,7 @@ dotnet test -c Release
 - `.editorconfig` encodes the mechanical rules of [`ENGINEERING_STANDARD.md`](ENGINEERING_STANDARD.md): explicit types unless obvious, no unused code, readonly fields.
 - Tests stub all HTTP and need no credentials. They make no live model or Azure DevOps calls.
 - One test starts a fake `git` (Linux only) to prove cancellation kills the git process.
+
+## Large PR performance
+
+Set `review.maxParallelRequests` to an integer from 1 to 8 (default 1). Independent file batches may overlap, while passes within a batch remain sequential. Start with 2 and compare against 1, 4 and 8 on the same immutable PR diff. Use `--verbose --json review.json` to capture timings, attempts, reasoning tokens when returned by the provider, and effective output throughput. Cumulative request time can exceed wall time with concurrency. Compare finding recall, severity and fingerprints as well as latency; do not increase concurrency if timeout or retry rates rise. Use separate report files outside the reviewed checkout. Existing contextLines, maxCharsPerRequest, maxChecksPerRequest and suggestFixes settings can be tuned independently. Changing review configuration may invalidate an existing incremental checkpoint scope.
