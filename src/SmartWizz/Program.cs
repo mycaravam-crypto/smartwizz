@@ -23,6 +23,7 @@ public static class Program
           --full-review       Review the complete PR diff even when --since is given
           --repo <path>       Git checkout (default: current directory)
           --config <path>     Config file (default: ./smartwizz.json if present)
+          --remember          Opt in to local metadata-only finding history
           --verbose           List excluded untracked paths and per-request performance metrics
           --plain             Disable rich terminal rendering (also automatic in CI and redirected output)
           --json <path>       Also write the JSON report to this file
@@ -153,6 +154,8 @@ public static class Program
         (ReviewPlan plan, ReviewResult result, ReviewCheckpoint? next) = await IncrementalReview.RunAsync(
             opt, previous, cfg.Review, provider, prompts, reviewScope, ruleset, Console.Error, ct, progress);
 
+        if (opt.Remember)
+            await FindingStore.TryRecordAsync(opt, reviewScope, result, Console.Error, ct);
         result.EndToEndMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         if (opt.Problems) Report.WriteProblems(result, Console.Out);
         else if (!plain && !Console.IsOutputRedirected && AnsiConsole.Profile.Capabilities.Interactive)
@@ -222,6 +225,7 @@ public sealed record Options
     public bool Problems { get; init; }
     public bool Plain { get; init; }
     public bool Verbose { get; init; }
+    public bool Remember { get; init; }
     public string? AnnotatedDiffPath { get; init; }
     public string? StateIn { get; init; }
     public string? StateOut { get; init; }
@@ -248,6 +252,7 @@ public sealed record Options
                 "--repo" => o with { Repo = Value() },
                 "--config" => o with { ConfigPath = Value() },
                 "--json" => o with { JsonPath = Value() },
+                "--remember" => o with { Remember = true },
                 "--verbose" => o with { Verbose = true },
                 "--plain" => o with { Plain = true },
                 "--format" => Value() switch
