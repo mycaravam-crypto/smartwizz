@@ -8,11 +8,11 @@ internal static class CSharpAnalysis
 {
     // Parse contiguous visible diff fragments only. Never load projects, execute builds,
     // or imply semantic type resolution from a partial source snapshot.
-    internal static List<Finding> Analyze(FileDiff file, CancellationToken ct)
+    internal static Dictionary<int, int> AttributionMap(FileDiff file, CancellationToken ct)
     {
-        var findings = new List<Finding>();
+        var candidates = new Dictionary<int, HashSet<int>>();
         if (!file.Path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
-            file.IsBinary || file.IsDeleted || file.NewLines.Count == 0) return findings;
+            file.IsBinary || file.IsDeleted || file.NewLines.Count == 0) return [];
         var lines = new List<string>();
         int first = 0, previous = 0;
         foreach ((int number, string text) in file.NewLines.OrderBy(entry => entry.Key))
@@ -61,11 +61,35 @@ internal static class CSharpAnalysis
                     subscript.Identifier.ValueText != index.Identifier.ValueText)
                     continue;
                 int line = first + tree.GetLineSpan(condition.Span, ct).StartLinePosition.Line;
-                if (!file.AddedLines.Contains(line) || !file.NewLines.TryGetValue(line, out string? source)) continue;
-                findings.Add(new Finding("off-by-one", Severity.Medium, "Potential inclusive array bounds error",
-                    "The loop includes Length while directly indexing the same receiver. For arrays this permits an out-of-range access; verify the receiver type and use an exclusive upper bound.",
-                    file.Path, line, null, 0.95, Review.Fingerprint("off-by-one", file.Path, source.Trim())));
+                if (!file.AddedLines.Contains(line)) continue;
+                FileLinePositionSpan span = tree.GetLineSpan(loop.Span, ct);
+                int start = first + span.StartLinePosition.Line;
+                int end = first + span.EndLinePosition.Line;
+                // Do not infer a location outside the actual visible syntax node.
+                for (int reported = start; reported <= end; reported++)
+                {
+                    if (!file.AddedLines.Contains(reported)) continue;
+                    if (!candidates.TryGetValue(reported, out HashSet<int>? targets))
+                        candidates.Add(reported, targets = []);
+                    targets.Add(line);
+                }
             }
         }
+    }
+
+    internal static Finding Attribute(Finding finding, FileDiff file, IReadOnlyDictionary<int, int> map)
+    {
+        // Only the narrow existing bounds category is supported. This never creates a finding.
+        if (RuleTaxonomy.Canonical(finding.RuleId) is not ("off-by-one" or "index-out-of-range" or "array-out-of-bounds") ||
+            !map.TryGetValue(finding.StartLine, out int line) || line == finding.StartLine ||
+            !file.AddedLines.Contains(line) || !file.NewLines.TryGetValue(line, out string? source))
+            return finding;
+        return finding with
+        {
+            StartLine = line,
+            EndLine = null,
+            SuggestedFix = null,
+            Fingerprint = Review.Fingerprint(finding.RuleId, file.Path, source),
+        };
     }
 }
