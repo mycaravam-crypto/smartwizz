@@ -29,7 +29,7 @@ public static partial class RuleTaxonomy
             return "sql-injection";
         if (category is "std-hardcoded-config" or "hardcoded-config" && CredentialAssignment().IsMatch(source))
             return "hardcoded-credential";
-        if (category == "index-out-of-range" && InclusiveLengthLoop().IsMatch(source))
+        if (category is "index-out-of-range" or "array-out-of-bounds" && InclusiveLengthLoop().IsMatch(source))
             return "off-by-one";
         return category;
     }
@@ -84,7 +84,7 @@ public static partial class RuleTaxonomy
         "hardcoded-config" or "std-hardcoded-config" or "std-injection" or
         "sql-injection" or "unsafe-sql-query" or "null-reference" or "null-dereference" or
         "empty-catch" or "swallowed-exception" or "missing-test" or "off-by-one" or
-        "index-out-of-range";
+        "index-out-of-range" or "array-out-of-bounds";
 
     // Unknown model-generated identifiers are not trusted metadata.
     public static string StorageCategory(string rule) => Canonical(rule) switch
