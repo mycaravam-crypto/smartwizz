@@ -31,6 +31,7 @@ dotnet run --project src/SmartWizz -- --repo ../my-repo --base origin/main
 | `--state-out <path>` | Write the review checkpoint after a fully successful run. |
 | `--repo <path>` | Git checkout, default current directory. |
 | `--config <path>` | Config file, default `./smartwizz.json` if present. |
+| `--verbose` | List individual untracked paths excluded from local review. |
 | `--plain` | Disable rich Spectre.Console rendering; automatically used for CI, redirected streams, `NO_COLOR`, and `TERM=dumb`. |
 | `--json <path>` | Also write the JSON report. |
 | `--format <name>` | Console output: `console` (default) or `problems`, one line per finding for editors. See [VS Code](#vs-code). |
