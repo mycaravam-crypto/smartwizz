@@ -29,9 +29,18 @@ public static class FindingStore
                 Directory.CreateDirectory(directory);
                 string repository = Hash(key, "repository-v1", OperatingSystem.IsWindows() ? root.ToUpperInvariant() : root);
                 string selection = opt.Staged ? "staged" : opt.Check ? "working" : $"pr:{opt.Base}:{opt.Head}:{opt.PrId}";
-                string revision = await GitDiff.ResolveShaAsync(opt.Repo, opt.Check || opt.Staged ? "HEAD" : opt.Head, ct);
-                ct.ThrowIfCancellationRequested();
-                Record(Path.Combine(directory, "findings-v1.db"), key, repository, Hash(key, scope, selection), revision, result, ct);
+                string database = Path.Combine(directory, "findings-v1.db");
+                string scoped = Hash(key, scope, selection);
+                if (result.CacheHit)
+                {
+                    ReadIdentities(database, key, repository, scoped, result, ct);
+                }
+                else
+                {
+                    string revision = await GitDiff.ResolveShaAsync(opt.Repo, opt.Check || opt.Staged ? "HEAD" : opt.Head, ct);
+                    ct.ThrowIfCancellationRequested();
+                    Record(database, key, repository, scoped, revision, result, ct);
+                }
             }
             finally { CryptographicOperations.ZeroMemory(key); }
         }
@@ -81,6 +90,40 @@ public static class FindingStore
             command.Parameters.AddWithValue("$line", finding.StartLine);
             command.ExecuteNonQuery();
         }
+    }
+
+    internal static void ReadIdentities(string database, byte[] key, string repository, string scope,
+        ReviewResult result, CancellationToken ct)
+    {
+        if (key.Length != 32) throw new ArgumentException("invalid history key", nameof(key));
+        if (!File.Exists(database)) return;
+        using var db = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = database,
+            Mode = SqliteOpenMode.ReadOnly,
+            Pooling = false,
+            DefaultTimeout = 5,
+        }.ToString());
+        db.Open();
+        var entries = result.Findings.Where(f => result.FindingAnchors.ContainsKey(f.Fingerprint))
+            .Select(f => (Finding: f, Anchor: Hash(key, "anchor-v1", f.FilePath,
+                Category(result, f), result.FindingAnchors[f.Fingerprint]))).ToList();
+        var repeated = entries.GroupBy(e => e.Anchor).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
+        var ids = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach ((Finding finding, string sourceAnchor) in entries)
+        {
+            ct.ThrowIfCancellationRequested();
+            string anchor = repeated.Contains(sourceAnchor)
+                ? Hash(key, sourceAnchor, finding.StartLine.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                : sourceAnchor;
+            string id = Hash(key, "finding-v1", repository, scope, anchor);
+            using SqliteCommand command = db.CreateCommand();
+            command.CommandText = "SELECT id FROM findings WHERE id=$id";
+            command.Parameters.AddWithValue("$id", id);
+            if (command.ExecuteScalar() is string storedId) ids.Add(finding.Fingerprint, storedId);
+        }
+        foreach ((string fingerprint, string id) in ids) result.PersistentFindingIds.Add(fingerprint, id);
+        result.KnownFindings = ids.Count;
     }
 
     public static void Record(string database, byte[] key, string repository, string scope, string revision,
