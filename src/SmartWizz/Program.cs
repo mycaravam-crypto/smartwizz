@@ -23,6 +23,7 @@ public static class Program
           --full-review       Review the complete PR diff even when --since is given
           --repo <path>       Git checkout (default: current directory)
           --config <path>     Config file (default: ./smartwizz.json if present)
+          --revalidate        Opt-in targeted historical provider review (fresh local review only)
           --resolve-id <id>   Record human-attested resolution (check only; full ID from JSON)
           --confirm-resolved  Attest that you independently verified the correction
           --remember          Enable local metadata-only finding history
@@ -124,6 +125,8 @@ public static class Program
         var cfg = Config.Load(opt.ConfigPath, Environment.GetEnvironmentVariable);
         opt = opt.ResolveStorage(cfg.Storage, Environment.GetEnvironmentVariable("CI") is not null,
             opt.Check || opt.ConfigPath is not null, Environment.GetEnvironmentVariable("SMARTWIZZ_HISTORY_KEY") is not null || HistoryKey.PreviouslyInitialized());
+        if (opt.RevalidateHistory && !opt.Remember)
+            throw new SmartWizzException(FailureKind.Usage, "--revalidate requires enabled local history outside CI");
         if (opt.Check || opt.Staged)
             Console.Error.WriteLine($"finding history: {(opt.Remember ? "enabled" : "disabled")} | review cache: {(opt.Cache ? "enabled" : "disabled")}");
         if (opt.PrId is { } prId)
@@ -178,7 +181,10 @@ public static class Program
 
         if (opt.Remember)
         {
+            result.CollectHistoricalCandidates = opt.RevalidateHistory;
             await FindingStore.TryRecordAsync(opt, historyScope, result, Console.Error, legacyScope, ct);
+            if (opt.RevalidateHistory)
+                await HistoricalRevalidation.RunAsync(result, provider, Console.Error, ct);
         }
         result.EndToEndMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         if (opt.Problems) Report.WriteProblems(result, Console.Out);
@@ -249,6 +255,7 @@ public sealed record Options
     public bool Problems { get; init; }
     public bool Plain { get; init; }
     public bool Verbose { get; init; }
+    public bool RevalidateHistory { get; init; }
     public string? ResolveId { get; init; }
     public bool ConfirmResolved { get; init; }
     public bool Remember { get; init; }
@@ -269,7 +276,7 @@ public sealed record Options
         return this with
         {
             Remember = enabled && (remember ?? true),
-            Cache = enabled && AnnotatedDiffPath is null && (cache ?? (FailOn is null)),
+            Cache = enabled && !RevalidateHistory && AnnotatedDiffPath is null && (cache ?? (FailOn is null)),
             InitializeHistory = enabled && (remember == true || cache == true),
             InvalidateCache = enabled && initialized && CacheOverride == false,
         };
@@ -300,6 +307,7 @@ public sealed record Options
                 "--repo" => o with { Repo = Value() },
                 "--config" => o with { ConfigPath = Value() },
                 "--json" => o with { JsonPath = Value() },
+                "--revalidate" => o with { RevalidateHistory = true },
                 "--resolve-id" => o with { ResolveId = Value() },
                 "--confirm-resolved" => o with { ConfirmResolved = true },
                 "--remember" => o with { Remember = true, RememberOverride = true },
@@ -325,6 +333,9 @@ public sealed record Options
                 _ => throw new SmartWizzException(FailureKind.Usage, $"unknown argument: {args[i]}"),
             };
         }
+        if (!o.Help && o.RevalidateHistory && (!o.Check || o.ResolveId is not null || o.Stateless ||
+            o.RememberOverride == false || o.CacheOverride == true))
+            throw new SmartWizzException(FailureKind.Usage, "--revalidate requires a fresh local check with history enabled");
         if (!o.Help && (o.ResolveId is not null || o.ConfirmResolved) &&
             (!o.Check || o.ResolveId is null || !o.ConfirmResolved || o.Stateless || o.RememberOverride == false ||
              o.JsonPath is not null || o.AnnotatedDiffPath is not null || o.FailOn is not null || o.CacheOverride is not null || o.Problems))
