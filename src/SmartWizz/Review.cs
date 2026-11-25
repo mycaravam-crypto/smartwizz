@@ -213,7 +213,7 @@ public static partial class Review
 
             async Task<List<Finding>> AskAsync(string diff, string task, List<FileDiff> sent, List<string>? standardIds, bool standardsOnly)
             {
-                var references = SourceReferences(sent);
+                Dictionary<string, (string Path, int Line)> references = SourceReferences(sent);
                 string userMessage = BuildUserMessage(diff, task + "\n\nAdded-line source references (file path, reference):\n" +
                     string.Join("\n", references.Select(entry => $"{entry.Value.Path}: {entry.Key}")));
                 int id = ++request;
@@ -497,7 +497,7 @@ public static partial class Review
         if (references is not null)
         {
             string? sourceRef = Str("sourceRef");
-            if (sourceRef is null || !references.TryGetValue(sourceRef, out var location))
+            if (sourceRef is null || !references.TryGetValue(sourceRef, out (string Path, int Line) location))
                 return Reject(out reason, $"{path}:{start}: source-reference-invalid");
             if (!string.Equals(location.Path, path, StringComparison.Ordinal))
                 return Reject(out reason, $"{path}:{start}: source-reference-file-mismatch");
