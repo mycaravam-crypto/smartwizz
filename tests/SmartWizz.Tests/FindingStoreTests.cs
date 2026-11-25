@@ -207,6 +207,49 @@ public class FindingStoreTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
+    [Theory]
+    [InlineData("hardcoded-credential", "string Password = \"FAKE_TEST_SECRET\";", "pattern-present")]
+    [InlineData("hardcoded-credential", "string Password = configurationValue;", "pattern-not-confirmed")]
+    [InlineData("off-by-one", "for (int i = 0; i <= values.Length; i++)", "pattern-present")]
+    [InlineData("off-by-one", "for (int i = 0; i < values.Length; i++)", "pattern-not-confirmed")]
+    [InlineData("sql-injection", "var sql = $\"SELECT * FROM users WHERE name = {name}\";", "pattern-present")]
+    [InlineData("sql-injection", "var sql = \"SELECT * FROM users WHERE name = @name\";", "pattern-not-confirmed")]
+    [InlineData("null-dereference", "value.ToString();", "not-checked")]
+    [InlineData("hardcoded-credential", "// string Password = \"FAKE_TEST_SECRET\";", "not-checked")]
+    public void Historical_patterns_are_advisory(string category, string source, string expected)
+    {
+        Assert.Equal(expected, RuleTaxonomy.HistoricalPattern(category, source));
+    }
+
+    [Fact]
+    public void Historical_pattern_evidence_does_not_count_as_a_new_detection()
+    {
+        string directory = Directory.CreateTempSubdirectory().FullName;
+        string database = Path.Combine(directory, "history.db");
+        byte[] key = new byte[32];
+        try
+        {
+            var file = new FileDiff { Path = "PrivateFile.cs" };
+            file.NewLines.Add(58, "before");
+            file.NewLines.Add(59, "string Password = \"FAKE_TEST_SECRET\";");
+            file.NewLines.Add(60, "after");
+            file.AddedLines.Add(59);
+            ReviewResult first = Make("hardcoded-secret", 59);
+            first.FindingAnchors["fp"] = Review.SourceAnchor(file, 59);
+            FindingStore.Record(database, key, "repo", "scope", "revision", first);
+            var absent = new ReviewResult { ReviewedSourceFiles = [file] };
+            FindingStore.Record(database, key, "repo", "scope", "revision", absent);
+            HistoricalFinding historical = Assert.Single(Assert.IsType<List<HistoricalFinding>>(absent.UnverifiedHistory));
+            Assert.Equal("exact-match", historical.AnchorEvidence);
+            Assert.Equal("pattern-present", historical.PatternEvidence);
+            Assert.Equal("open", historical.Lifecycle);
+            Assert.Equal(1L, historical.Observations);
+            Assert.Empty(absent.Findings);
+            Assert.Equal(0, absent.KnownFindings);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     static ReviewResult Make(string rule, int line)
     {
         var result = new ReviewResult();
