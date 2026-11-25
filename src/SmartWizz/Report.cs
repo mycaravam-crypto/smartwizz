@@ -36,6 +36,7 @@ public static class Report
         r.DuplicateDetections,
         r.KnownFindings,
         r.UnverifiedHistory,
+        r.LocalFindingStates,
         r.HistoryElapsedMilliseconds,
         r.CacheHit,
         r.CacheCreatedUnixSeconds,
