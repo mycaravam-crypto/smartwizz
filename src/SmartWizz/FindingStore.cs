@@ -85,9 +85,11 @@ public static class FindingStore
                 INSERT INTO findings (id,repository,scope,anchor,category,path_hash,start_line,end_line,severity,revision,first_seen,last_seen,observations)
                 SELECT $id,repository,scope,$anchor,$category,path_hash,start_line,end_line,severity,revision,first_seen,last_seen,observations
                 FROM findings WHERE id=$old AND start_line=$line
+                    AND NOT EXISTS (SELECT 1 FROM finding_lifecycle WHERE id=$old)
                 ON CONFLICT(id) DO UPDATE SET observations=findings.observations+excluded.observations,
                     first_seen=min(findings.first_seen,excluded.first_seen),last_seen=max(findings.last_seen,excluded.last_seen);
-                DELETE FROM findings WHERE id=$old AND start_line=$line;
+                DELETE FROM findings WHERE id=$old AND start_line=$line
+                    AND NOT EXISTS (SELECT 1 FROM finding_lifecycle WHERE id=$old);
                 """;
             command.Parameters.AddWithValue("$id", id);
             command.Parameters.AddWithValue("$anchor", anchor);
@@ -191,6 +193,23 @@ public static class FindingStore
         // A cached snapshot is not a new inspection; do not infer missing findings from it.
     }
 
+    // Separate lifecycle from observation. Existing rows without a state are open.
+    // Resolution is not inferred here; a future explicit verifier may record it.
+    static void EnsureLifecycle(SqliteConnection db, SqliteTransaction tx)
+    {
+        using SqliteCommand command = db.CreateCommand();
+        command.Transaction = tx;
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS finding_lifecycle (
+                id TEXT PRIMARY KEY,
+                state TEXT NOT NULL CHECK(state IN ('resolved','regressed'))
+            );
+            """;
+        command.ExecuteNonQuery();
+    }
+
+    internal static string ObserveLifecycle(string prior) => prior == "resolved" || prior == "regressed" ? "regressed" : "open";
+
     // Evidence of a source anchor, not proof of a defect or its resolution.
     internal static (string Status, int? Line) MatchHistoricalAnchor(byte[] key, FileDiff? file, string category,
         string anchor, ref int budget, CancellationToken ct)
@@ -250,6 +269,7 @@ public static class FindingStore
                 """;
             schema.ExecuteNonQuery();
         }
+        EnsureLifecycle(db, tx);
         if (legacyScope is not null)
             scope = EffectiveScope(db, tx, repository, scope, legacyScope, write: true);
         var entries = result.Findings.Where(f => result.FindingAnchors.ContainsKey(f.Fingerprint))
@@ -258,6 +278,7 @@ public static class FindingStore
         var repeated = entries.GroupBy(e => e.Anchor).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
         var ids = new Dictionary<string, string>(StringComparer.Ordinal);
         int known = 0;
+        var states = new Dictionary<string, LocalFindingState>(StringComparer.Ordinal);
         foreach ((Finding finding, string sourceAnchor) in entries)
         {
             ct.ThrowIfCancellationRequested();
@@ -273,9 +294,12 @@ public static class FindingStore
                     Category(result, f), id, anchor);
             using SqliteCommand command = db.CreateCommand();
             command.Transaction = tx;
-            command.CommandText = "SELECT observations FROM findings WHERE id = $id";
+            command.CommandText = "SELECT COALESCE(l.state, 'open') FROM findings f LEFT JOIN finding_lifecycle l ON l.id=f.id WHERE f.id=$id";
             command.Parameters.AddWithValue("$id", id);
-            if (command.ExecuteScalar() is not null) known++;
+            string? prior = command.ExecuteScalar() as string;
+            if (prior is not null) known++;
+            string lifecycle = ObserveLifecycle(prior ?? "open");
+            states.Add(f.Fingerprint, new LocalFindingState(lifecycle, prior is null ? "new" : "known"));
             command.CommandText = """
                 INSERT INTO findings (id,repository,scope,anchor,category,path_hash,start_line,end_line,severity,revision,first_seen,last_seen,observations)
                 VALUES ($id,$repository,$scope,$anchor,$category,$path,$start,$end,$severity,$revision,$now,$now,1)
@@ -293,6 +317,11 @@ public static class FindingStore
             command.Parameters.AddWithValue("$revision", revision);
             command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
             command.ExecuteNonQuery();
+            if (lifecycle == "regressed")
+            {
+                command.CommandText = "INSERT INTO finding_lifecycle(id,state) VALUES ($id,'regressed') ON CONFLICT(id) DO UPDATE SET state='regressed'";
+                command.ExecuteNonQuery();
+            }
             ids.Add(f.Fingerprint, id);
         }
         // Historical omissions are a report projection, not a stored resolution transition.
@@ -305,8 +334,9 @@ public static class FindingStore
         {
             history.Transaction = tx;
             history.CommandText = """
-                SELECT id,category,severity,start_line,last_seen,observations,path_hash,anchor FROM findings
-                WHERE repository=$repository AND scope=$scope ORDER BY last_seen DESC,id
+                SELECT f.id,category,severity,start_line,last_seen,observations,path_hash,anchor,COALESCE(l.state,'open')
+                FROM findings f LEFT JOIN finding_lifecycle l ON l.id=f.id
+                WHERE repository=$repository AND scope=$scope ORDER BY last_seen DESC,f.id
                 """;
             history.Parameters.AddWithValue("$repository", repository);
             history.Parameters.AddWithValue("$scope", scope);
@@ -315,17 +345,18 @@ public static class FindingStore
             {
                 ct.ThrowIfCancellationRequested();
                 string id = rows.GetString(0);
-                if (observed.Contains(id)) continue;
+                if (observed.Contains(id) || rows.GetString(8) == "resolved") continue;
                 string category = RuleTaxonomy.StorageCategory(rows.GetString(1));
                 reviewedPaths.TryGetValue(rows.GetString(6), out FileDiff? file);
                 (string status, int? line) = MatchHistoricalAnchor(key, file, category, rows.GetString(7), ref anchorBudget, ct);
                 unverified.Add(new HistoricalFinding(id, category,
-                    (Severity)rows.GetInt32(2), rows.GetInt32(3), rows.GetInt64(4), rows.GetInt64(5), status, line));
+                    (Severity)rows.GetInt32(2), rows.GetInt32(3), rows.GetInt64(4), rows.GetInt64(5), status, line, rows.GetString(8)));
             }
         }
         ct.ThrowIfCancellationRequested();
         tx.Commit();
         result.UnverifiedHistory = unverified;
+        foreach ((string fingerprint, LocalFindingState state) in states) result.LocalFindingStates.Add(fingerprint, state);
         result.KnownFindings = known;
         foreach ((string fingerprint, string id) in ids) result.PersistentFindingIds.Add(fingerprint, id);
     }
