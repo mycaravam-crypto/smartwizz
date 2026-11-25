@@ -22,7 +22,7 @@ public static class Program
           --full-review       Review the complete PR diff even when --since is given
           --repo <path>       Git checkout (default: current directory)
           --config <path>     Config file (default: ./smartwizz.json if present)
-          --verbose           List all untracked paths excluded from review
+          --verbose           List excluded untracked paths and per-request performance metrics
           --plain             Disable rich terminal rendering (also automatic in CI and redirected output)
           --json <path>       Also write the JSON report to this file
           --format <name>     Console output: console (default) or problems (one line per finding, for editors)
@@ -155,6 +155,8 @@ public static class Program
         else if (!plain && !Console.IsOutputRedirected && AnsiConsole.Profile.Capabilities.Interactive)
             Report.WriteRichConsole(result, AnsiConsole.Console);
         else Report.WriteConsole(result, Console.Out);
+        if (opt.Verbose && !opt.Problems)
+            Report.WriteRequestTimings(result, Console.Out);
         if (next is not null)
             Report.WriteCheckpoint(next, previous, Console.Out);
         if (opt.JsonPath is not null)
