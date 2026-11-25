@@ -11,8 +11,13 @@ internal static class HistoryKey
         return Path.GetFullPath(Path.Combine(local, "smartwizz", "data"));
     }
 
-    internal static bool PreviouslyInitialized() =>
-        OperatingSystem.IsWindows() && File.Exists(Path.Combine(DirectoryPath(), "history-key.dpapi"));
+    internal static bool PreviouslyInitialized()
+    {
+        if (!OperatingSystem.IsWindows()) return false;
+        try { return File.Exists(Path.Combine(DirectoryPath(), "history-key.dpapi")); }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+    }
 
     internal static async Task<string> SafeDirectoryAsync(string repo, CancellationToken ct)
     {
