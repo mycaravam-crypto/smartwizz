@@ -29,8 +29,14 @@ public static partial class RuleTaxonomy
             return "sql-injection";
         if (category is "std-hardcoded-config" or "hardcoded-config" && CredentialAssignment().IsMatch(source))
             return "hardcoded-credential";
+        if (category == "index-out-of-range" && InclusiveLengthLoop().IsMatch(source))
+            return "off-by-one";
         return category;
     }
+
+    // Restrict the alias to a zero-based increasing loop with the same index in its condition.
+    [GeneratedRegex(@"^\s*for\s*\(\s*(?:int|var)\s+(?<index>\w+)\s*=\s*0\s*;\s*\k<index>\s*<=\s*\w+\.Length\s*;\s*\k<index>\s*\+\+\s*\)", RegexOptions.CultureInvariant)]
+    private static partial Regex InclusiveLengthLoop();
 
     // Narrow, best-effort protection for direct quoted credential assignments.
     // Do not persist the captured literals or treat this as a general secret scanner.
@@ -65,6 +71,7 @@ public static partial class RuleTaxonomy
         "sql-injection" => "sql-injection",
         "null-dereference" => "null-dereference",
         "swallowed-exception" => "swallowed-exception",
+        "off-by-one" => "off-by-one",
         _ => "other",
     };
 }
