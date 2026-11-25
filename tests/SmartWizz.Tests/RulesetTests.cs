@@ -60,6 +60,43 @@ public sealed class RulesetTests
     static readonly string[] LongTest = ["Assert.Equal(expectedTotal, calculator.Sum(firstValue, secondValue));",
         "Assert.Equal(expectedCount, calculator.Count(firstValue, secondValue));"];
 
+    [Theory]
+    [InlineData("advisory", "medium", Severity.Medium)]
+    [InlineData("minimum", "medium", Severity.High)]
+    [InlineData("minimum", "critical", Severity.Critical)]
+    [InlineData("fixed", "critical", Severity.High)]
+    public async Task Ruleset_severity_policy_applies_to_canonical_findings(string mode, string modelSeverity, Severity expected)
+    {
+        Ruleset rules = Ruleset.Parse(Sample.Replace(
+            "\"id\": \"std-secret\", \"severity\": \"high\"",
+            $"\"id\": \"std-secret\", \"severity\": \"high\", \"severityMode\": \"{mode}\", \"categories\": [\"hardcoded-credential\"]"));
+        var stub = new StubHandler((_, _) => StubHandler.Chat(Finding("hardcoded-secret").Replace("\"severity\":\"medium\"", $"\"severity\":\"{modelSeverity}\"")));
+        ReviewResult result = await Review.RunAsync(Added("src/A.cs", "password = 1"), new ReviewConfig(), Provider(stub), Prompts, default, rules);
+        Finding finding = Assert.Single(result.Findings);
+        Assert.Equal(expected, finding.Severity);
+        Assert.Equal(expected >= Severity.High ? 1 : 0, Review.ExitCode(result.Findings, Severity.High));
+        if (mode == "advisory") Assert.Empty(result.SeverityDecisions);
+        else
+        {
+            SeverityDecision decision = result.SeverityDecisions[finding.Fingerprint];
+            Assert.Equal(Review.ParseSeverity(modelSeverity), decision.ModelSeverity);
+            Assert.Equal(expected, decision.EffectiveSeverity);
+            Assert.Equal(["std-secret"], decision.PolicyRules);
+        }
+    }
+
+    [Theory]
+    [InlineData("unsupported", "hardcoded-credential")]
+    [InlineData("minimum", "arbitrary-category")]
+    [InlineData("minimum", "hardcoded-secret")]
+    public void Invalid_severity_policy_is_rejected(string mode, string category)
+    {
+        string json = Sample.Replace(
+            "\"id\": \"std-secret\", \"severity\": \"high\"",
+            $"\"id\": \"std-secret\", \"severity\": \"high\", \"severityMode\": \"{mode}\", \"categories\": [\"{category}\"]");
+        Assert.Throws<SmartWizzException>(() => Ruleset.Parse(json));
+    }
+
     [Fact]
     public void Loads_metadata_and_hashes_the_whole_file()
     {
