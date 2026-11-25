@@ -48,6 +48,8 @@ public sealed class ReviewResult
     public int? KnownFindings { get; set; }
     public double? HistoryElapsedMilliseconds { get; set; }
     public bool CacheHit { get; set; }
+    public long? CacheCreatedUnixSeconds { get; set; }
+    public double? CacheLookupMilliseconds { get; set; }
     public int CachedRequests { get; set; }
     public Dictionary<string, string[]> FindingSourceRules { get; } = new(StringComparer.Ordinal);
     internal Dictionary<string, string> FindingCategories { get; } = new(StringComparer.Ordinal);
