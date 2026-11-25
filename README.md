@@ -411,6 +411,10 @@ Run `smartwizz check --remember` to record metadata in LocalApplicationData/smar
 
 The model may quote the exact added source line in its response. SmartWizz checks a unique same-file added-line match before relocating a finding, rejects ambiguous or unmatched evidence, and discards the suggested fix and end-line range when relocating. Older responses without source evidence retain line-number validation. Source evidence is not stored in the history or cache.
 
+### Targeted historical provider revalidation
+
+Use `smartwizz check --revalidate --verbose --json review.json` with local history enabled outside CI. This forces a fresh review and submits up to five unverified historical findings with unique exact anchors, highest severity first, in one additional logical provider request (retries and fallbacks may add HTTP requests). Each excerpt is limited to 4,000 characters and 17 visible lines. The configured provider receives source excerpts and opaque historical IDs; use only an authorized provider. Verdicts are advisory: supported, not-supported or inconclusive. They do not change lifecycle state, observations or quality gates and are not persisted in SQLite. Missing, duplicate or invalid verdicts are inconclusive. Additional timing and token metrics are available in JSON. The option is incompatible with --cache, --stateless and --no-remember.
+
 ### Explicit finding resolution (local history)
 
 After independently verifying a correction, export a fresh report with `smartwizz check --no-cache --json review.json`. Obtain the full 64-character persistent finding ID from the current or historical finding metadata in the JSON report, then use:
