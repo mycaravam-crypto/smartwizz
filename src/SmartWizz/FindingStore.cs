@@ -26,8 +26,9 @@ public static class FindingStore
             {
                 if (key.Length != 32) throw new ArgumentException("invalid history key");
                 string root = await GitDiff.RepositoryRootAsync(opt.Repo, ct);
-                string directory = Path.GetFullPath(Path.Combine(Environment.GetFolderPath(
-                    Environment.SpecialFolder.LocalApplicationData), "smartwizz", "data"));
+                string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                if (string.IsNullOrWhiteSpace(local)) throw new IOException("local application data unavailable");
+                string directory = Path.GetFullPath(Path.Combine(local, "smartwizz", "data"));
                 string relative = Path.GetRelativePath(root, directory);
                 if (!Path.IsPathRooted(relative) && relative != ".." &&
                     !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
@@ -80,10 +81,10 @@ public static class FindingStore
                 """;
             schema.ExecuteNonQuery();
         }
-        var entries = result.Findings.Where(f => result.FindingAnchors.ContainsKey(f.Fingerprint))
+        List<(Finding Finding, string Anchor)> entries = result.Findings.Where(f => result.FindingAnchors.ContainsKey(f.Fingerprint))
             .Select(f => (Finding: f, Anchor: Hash(key, "anchor-v1", f.FilePath,
                 RuleTaxonomy.Canonical(f.RuleId), result.FindingAnchors[f.Fingerprint]))).ToList();
-        var repeated = entries.GroupBy(e => e.Anchor).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
+        HashSet<string> repeated = entries.GroupBy(e => e.Anchor).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
         var ids = new Dictionary<string, string>(StringComparer.Ordinal);
         int known = 0;
         foreach (var entry in entries)
