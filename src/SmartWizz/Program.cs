@@ -24,6 +24,7 @@ public static class Program
           --repo <path>       Git checkout (default: current directory)
           --config <path>     Config file (default: ./smartwizz.json if present)
           --remember          Opt in to local metadata-only finding history
+          --cache             Reuse recent exact-input local metadata (check or --staged only)
           --verbose           List excluded untracked paths and per-request performance metrics
           --plain             Disable rich terminal rendering (also automatic in CI and redirected output)
           --json <path>       Also write the JSON report to this file
@@ -152,9 +153,9 @@ public static class Program
         });
         using ConsoleProgress progress = new(Console.Error, !opt.Problems, !Console.IsErrorRedirected, terminal);
         (ReviewPlan plan, ReviewResult result, ReviewCheckpoint? next) = await IncrementalReview.RunAsync(
-            opt, previous, cfg.Review, provider, prompts, reviewScope, ruleset, Console.Error, ct, progress);
+            opt, previous, cfg.Review, provider, prompts, reviewScope, ruleset, Console.Error, ct, progress, cfg.Provider.Model);
 
-        if (opt.Remember)
+        if (opt.Remember && !result.CacheHit)
             await FindingStore.TryRecordAsync(opt, reviewScope, result, Console.Error, ct);
         result.EndToEndMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         if (opt.Problems) Report.WriteProblems(result, Console.Out);
@@ -226,6 +227,7 @@ public sealed record Options
     public bool Plain { get; init; }
     public bool Verbose { get; init; }
     public bool Remember { get; init; }
+    public bool Cache { get; init; }
     public string? AnnotatedDiffPath { get; init; }
     public string? StateIn { get; init; }
     public string? StateOut { get; init; }
@@ -253,6 +255,7 @@ public sealed record Options
                 "--config" => o with { ConfigPath = Value() },
                 "--json" => o with { JsonPath = Value() },
                 "--remember" => o with { Remember = true },
+                "--cache" => o with { Cache = true },
                 "--verbose" => o with { Verbose = true },
                 "--plain" => o with { Plain = true },
                 "--format" => Value() switch
@@ -284,6 +287,8 @@ public sealed record Options
         }
         else if (!o.Help && ((o.PrId is null && string.IsNullOrWhiteSpace(o.Base)) || (o.PrId is not null && o.Base is not null)))
             throw new SmartWizzException(FailureKind.Usage, "specify exactly one of --base, --pr or --staged");
+        if (!o.Help && o.Cache && (!(o.Check || o.Staged) || o.AnnotatedDiffPath is not null))
+            throw new SmartWizzException(FailureKind.Usage, "--cache is only supported for local reviews without annotated diff output");
         if (o.PrId is not null && o.Head != "HEAD")
             throw new SmartWizzException(FailureKind.Usage, "--head cannot be combined with --pr");
         return o;
