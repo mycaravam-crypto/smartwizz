@@ -11,7 +11,11 @@ public static class FindingStore
     internal static string Hash(byte[] key, params string[] parts) =>
         Convert.ToHexStringLower(HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(parts))));
 
-    public static async Task TryRecordAsync(Options opt, string scope, ReviewResult result, TextWriter log, CancellationToken ct)
+    internal static string PolicyScope(string? rulesetSha, string? guidelines) =>
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new string?[]
+        { "history-policy-v2", rulesetSha, guidelines }))));
+
+    public static async Task TryRecordAsync(Options opt, string scope, ReviewResult result, TextWriter log, CancellationToken ct, string? legacyScope = null)
     {
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         try
@@ -31,15 +35,16 @@ public static class FindingStore
                 string selection = opt.Staged ? "staged" : opt.Check ? "working" : $"pr:{opt.Base}:{opt.Head}:{opt.PrId}";
                 string database = Path.Combine(directory, "findings-v1.db");
                 string scoped = Hash(key, scope, selection);
+                string? legacy = legacyScope is null ? null : Hash(key, legacyScope, selection);
                 if (result.CacheHit)
                 {
-                    ReadIdentities(database, key, repository, scoped, result, ct);
+                    ReadIdentities(database, key, repository, scoped, result, ct, legacy);
                 }
                 else
                 {
                     string revision = await GitDiff.ResolveShaAsync(opt.Repo, opt.Check || opt.Staged ? "HEAD" : opt.Head, ct);
                     ct.ThrowIfCancellationRequested();
-                    Record(database, key, repository, scoped, revision, result, ct);
+                    Record(database, key, repository, scoped, revision, result, ct, legacy);
                 }
             }
             finally { CryptographicOperations.ZeroMemory(key); }
@@ -93,8 +98,61 @@ public static class FindingStore
         }
     }
 
+    // Bind a stable policy scope to an existing exact legacy scope only when it
+    // can be reconstructed and has records. Keep its original ID namespace.
+    static string EffectiveScope(SqliteConnection db, SqliteTransaction? tx, string repository, string scope, string? legacy, bool write)
+    {
+        using SqliteCommand command = db.CreateCommand();
+        command.Transaction = tx;
+        command.Parameters.AddWithValue("$repository", repository);
+        command.Parameters.AddWithValue("$scope", scope);
+        if (write)
+        {
+            command.CommandText = """
+                CREATE TABLE IF NOT EXISTS history_scopes (
+                    repository TEXT NOT NULL,
+                    policy_scope TEXT NOT NULL,
+                    effective_scope TEXT NOT NULL,
+                    PRIMARY KEY(repository,policy_scope),
+                    UNIQUE(repository,effective_scope)
+                );
+                """;
+            command.ExecuteNonQuery();
+        }
+        command.CommandText = "SELECT 1 FROM sqlite_master WHERE type='table' AND name='history_scopes'";
+        bool hasMapping = command.ExecuteScalar() is not null;
+        if (hasMapping)
+        {
+            command.CommandText = "SELECT effective_scope FROM history_scopes WHERE repository=$repository AND policy_scope=$scope";
+            if (command.ExecuteScalar() is string existing) return existing;
+        }
+        // Prefer an already populated stable namespace over importing a legacy namespace.
+        command.CommandText = "SELECT 1 FROM findings WHERE repository=$repository AND scope=$scope LIMIT 1";
+        bool hasStable = command.ExecuteScalar() is not null;
+        string effective = scope;
+        if (!hasStable && legacy is not null)
+        {
+            command.Parameters.AddWithValue("$legacy", legacy);
+            command.CommandText = "SELECT 1 FROM findings WHERE repository=$repository AND scope=$legacy LIMIT 1";
+            bool hasLegacy = command.ExecuteScalar() is not null;
+            if (hasLegacy && hasMapping)
+            {
+                command.CommandText = "SELECT 1 FROM history_scopes WHERE repository=$repository AND effective_scope=$legacy";
+                hasLegacy = command.ExecuteScalar() is null;
+            }
+            if (hasLegacy) effective = legacy;
+        }
+        if (write)
+        {
+            command.Parameters.AddWithValue("$effective", effective);
+            command.CommandText = "INSERT INTO history_scopes(repository,policy_scope,effective_scope) VALUES ($repository,$scope,$effective)";
+            command.ExecuteNonQuery();
+        }
+        return effective;
+    }
+
     internal static void ReadIdentities(string database, byte[] key, string repository, string scope,
-        ReviewResult result, CancellationToken ct)
+        ReviewResult result, CancellationToken ct, string? legacyScope = null)
     {
         if (key.Length != 32) throw new ArgumentException("invalid history key", nameof(key));
         if (!File.Exists(database)) return;
@@ -106,6 +164,7 @@ public static class FindingStore
             DefaultTimeout = 5,
         }.ToString());
         db.Open();
+        scope = EffectiveScope(db, null, repository, scope, legacyScope, write: false);
         var entries = result.Findings.Where(f => result.FindingAnchors.ContainsKey(f.Fingerprint))
             .Select(f => (Finding: f, Anchor: Hash(key, "anchor-v1", f.FilePath,
                 Category(result, f), result.FindingAnchors[f.Fingerprint]))).ToList();
@@ -129,7 +188,7 @@ public static class FindingStore
     }
 
     public static void Record(string database, byte[] key, string repository, string scope, string revision,
-        ReviewResult result, CancellationToken ct = default)
+        ReviewResult result, CancellationToken ct = default, string? legacyScope = null)
     {
         if (key.Length != 32) throw new ArgumentException("invalid history key", nameof(key));
         using var db = new SqliteConnection(new SqliteConnectionStringBuilder
@@ -163,6 +222,7 @@ public static class FindingStore
                 """;
             schema.ExecuteNonQuery();
         }
+        scope = EffectiveScope(db, tx, repository, scope, legacyScope, write: true);
         var entries = result.Findings.Where(f => result.FindingAnchors.ContainsKey(f.Fingerprint))
             .Select(f => (Finding: f, Anchor: Hash(key, "anchor-v1", f.FilePath,
                 Category(result, f), result.FindingAnchors[f.Fingerprint]))).ToList();
