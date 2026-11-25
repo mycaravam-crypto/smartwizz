@@ -37,6 +37,8 @@ public static class Report
         r.KnownFindings,
         r.HistoryElapsedMilliseconds,
         r.CacheHit,
+        r.CacheCreatedUnixSeconds,
+        r.CacheLookupMilliseconds,
         r.CachedRequests,
         r.FindingSourceRules,
         r.PersistentFindingIds,
@@ -98,6 +100,14 @@ public static class Report
     static string Duration(double milliseconds) =>
         FormattableString.Invariant($"{milliseconds / 1000:0.00}s");
 
+    static string CacheSummary(ReviewResult r)
+    {
+        string age = r.CacheCreatedUnixSeconds is { } created
+            ? FormattableString.Invariant($"; inspected {DateTimeOffset.FromUnixTimeSeconds(created):yyyy-MM-dd HH:mm:ss} UTC")
+            : "";
+        return $"Cache hit: {r.CachedRequests} request(s) avoided; historical metadata only{age}";
+    }
+
     static string? FindingTiming(ReviewResult r, Finding f)
     {
         if (!r.FindingRequests.TryGetValue(f.Fingerprint, out int request)) return null;
@@ -151,8 +161,11 @@ public static class Report
             console.Write(new Text(Safe($"Ruleset: {r.RulesetName} {r.RulesetVersion}\n")));
         console.Write(new Text($"{r.Requests} request(s)\n"));
         console.Write(new Text($"Detections: {r.RawDetections} | Duplicates merged: {r.DuplicateDetections}\n"));
-        if (r.KnownFindings is { } known) console.Write(new Text($"Previously observed: {known} | New: {r.PersistentFindingIds.Count - known}\n"));
-        if (r.CacheHit) console.Write(new Text($"Cache hit: {r.CachedRequests} request(s) avoided; historical metadata only\n"));
+        if (r.KnownFindings is { } known) console.Write(new Text(r.CacheHit
+            ? $"Historical identities found: {known} (no new observations)\n"
+            : $"Previously observed: {known} | New: {r.PersistentFindingIds.Count - known}\n"));
+        if (r.CacheHit) console.Write(new Text(CacheSummary(r) + "\n"));
+        if (r.CacheLookupMilliseconds is { } lookup) console.Write(new Text($"Cache lookup: {Duration(lookup)}\n"));
         if (r.HistoryElapsedMilliseconds is { } history) console.Write(new Text($"History: {Duration(history)}\n"));
         if (TimingSummary(r) is { } timingSummary)
             console.Write(new Text(timingSummary + "\n"));
@@ -201,8 +214,11 @@ public static class Report
         w.WriteLine(Summary(r));
         if (TimingSummary(r) is { } timingSummary) w.WriteLine(timingSummary);
         w.WriteLine($"Detections: {r.RawDetections} | Duplicates merged: {r.DuplicateDetections}");
-        if (r.KnownFindings is { } known) w.WriteLine($"Previously observed: {known} | New: {r.PersistentFindingIds.Count - known}");
-        if (r.CacheHit) w.WriteLine($"Cache hit: {r.CachedRequests} request(s) avoided; historical metadata only");
+        if (r.KnownFindings is { } known) w.WriteLine(r.CacheHit
+            ? $"Historical identities found: {known} (no new observations)"
+            : $"Previously observed: {known} | New: {r.PersistentFindingIds.Count - known}");
+        if (r.CacheHit) w.WriteLine(CacheSummary(r));
+        if (r.CacheLookupMilliseconds is { } lookup) w.WriteLine($"Cache lookup: {Duration(lookup)}");
         if (r.HistoryElapsedMilliseconds is { } history) w.WriteLine($"History: {Duration(history)}");
         if (r.Models.Count > 0)
             w.WriteLine($"Reviewed by: {string.Join(", ", r.Models)}");
