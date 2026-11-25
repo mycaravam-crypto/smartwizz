@@ -126,7 +126,7 @@ public static partial class Review
             offsets[i] = offset;
             offset += ruleset is null ? 1 : Ruleset.Passes(ruleset.Select(batches[i]), cfg.MaxChecksPerRequest).Count;
         }
-        var outcomes = new BatchOutcome?[batches.Count];
+        BatchOutcome?[] outcomes = new BatchOutcome?[batches.Count];
         int completed = 0, reviewed = 0, active = 0;
         object progressGate = new();
         void Notify()
