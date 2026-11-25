@@ -85,6 +85,20 @@ public sealed class RulesetTests
         }
     }
 
+    [Fact]
+    public async Task Custom_category_uses_ruleset_policy_without_application_taxonomy()
+    {
+        var rules = Ruleset.Parse(Sample.Replace(
+            "\"id\": \"std-secret\", \"severity\": \"high\"",
+            "\"id\": \"std-secret\", \"severity\": \"high\", \"severityMode\": \"minimum\", \"categories\": [\"custom-review-category\"]"));
+        var stub = new StubHandler((_, _) => StubHandler.Chat(Finding("custom-review-category")));
+        ReviewResult result = await Review.RunAsync(Added("src/A.cs", "password = 1"), new ReviewConfig(), Provider(stub), Prompts, default, rules);
+        Finding finding = Assert.Single(result.Findings);
+        Assert.Equal(Severity.High, finding.Severity);
+        Assert.Equal("custom-review-category", result.FindingCategories[finding.Fingerprint]);
+        Assert.Equal(["std-secret"], result.SeverityDecisions[finding.Fingerprint].PolicyRules);
+    }
+
     [Theory]
     [InlineData("unsupported", "hardcoded-credential")]
     [InlineData("minimum", "invalid category")]
