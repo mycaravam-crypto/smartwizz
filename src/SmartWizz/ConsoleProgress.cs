@@ -48,6 +48,14 @@ public sealed class ConsoleProgress : IProgress<ReviewProgress>, IDisposable
                 return;
             }
 
+            // In rich mode omit intermediate snapshots; retain request starts and final file count.
+            if (_console is not null && !value.RequestActive &&
+                (value.CompletedRequests < value.TotalRequests || value.ReviewedFiles < value.TotalFiles))
+            {
+                _current = value;
+                return;
+            }
+
             if (value.RequestActive)
             {
                 if (_current?.RequestActive != true)

@@ -21,7 +21,12 @@ public static class IncrementalReview
             ReviewPlan localPlan = opt.Staged ? new(ReviewMode.Staged, null, "git index") : new(ReviewMode.Uncommitted, null, "working tree vs HEAD");
             log.WriteLine($"review mode: {localPlan.Mode.ToString().ToLowerInvariant()} ({localPlan.Reason})");
             if (!opt.Staged && await GitDiff.ListUntrackedAsync(opt.Repo, ct) is { Count: > 0 } untracked)
-                log.WriteLine($"note: untracked, not reviewed (`git add -N <path>` includes them): {string.Join(", ", untracked)}");
+            {
+                log.WriteLine($"note: {untracked.Count} untracked path(s) excluded (directories may represent multiple files). Use --verbose to list them; git add -N <path> includes selected files.");
+                if (opt.Verbose)
+                    foreach (string path in untracked)
+                        log.WriteLine("  " + string.Concat(path.Where(c => !char.IsControl(c))));
+            }
             List<FileDiff> localFiles = GitDiff.Parse(await LocalDiffAsync(opt, cfg.ContextLines, ct));
             ReviewResult localResult = await Review.RunAsync(localFiles, cfg, provider, prompts, ct, ruleset, progress);
             return new ReviewRun(localPlan, localResult, null);

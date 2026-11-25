@@ -22,6 +22,7 @@ public static class Program
           --full-review       Review the complete PR diff even when --since is given
           --repo <path>       Git checkout (default: current directory)
           --config <path>     Config file (default: ./smartwizz.json if present)
+          --verbose           List excluded untracked paths and per-request performance metrics
           --plain             Disable rich terminal rendering (also automatic in CI and redirected output)
           --json <path>       Also write the JSON report to this file
           --format <name>     Console output: console (default) or problems (one line per finding, for editors)
@@ -154,6 +155,8 @@ public static class Program
         else if (!plain && !Console.IsOutputRedirected && AnsiConsole.Profile.Capabilities.Interactive)
             Report.WriteRichConsole(result, AnsiConsole.Console);
         else Report.WriteConsole(result, Console.Out);
+        if (opt.Verbose && !opt.Problems)
+            Report.WriteRequestTimings(result, Console.Out);
         if (next is not null)
             Report.WriteCheckpoint(next, previous, Console.Out);
         if (opt.JsonPath is not null)
@@ -215,6 +218,7 @@ public sealed record Options
     public string? JsonPath { get; init; }
     public bool Problems { get; init; }
     public bool Plain { get; init; }
+    public bool Verbose { get; init; }
     public string? AnnotatedDiffPath { get; init; }
     public string? StateIn { get; init; }
     public string? StateOut { get; init; }
@@ -241,6 +245,7 @@ public sealed record Options
                 "--repo" => o with { Repo = Value() },
                 "--config" => o with { ConfigPath = Value() },
                 "--json" => o with { JsonPath = Value() },
+                "--verbose" => o with { Verbose = true },
                 "--plain" => o with { Plain = true },
                 "--format" => Value() switch
                 {
