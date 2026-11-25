@@ -57,6 +57,9 @@ public static class FindingStore
         finally { result.HistoryElapsedMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds; }
     }
 
+    static string StorageCategory(ReviewResult result, string category) =>
+        result.ActiveRuleset?.ContainsRule(category) == true ? category : RuleTaxonomy.StorageCategory(category);
+
     static string Category(ReviewResult result, Finding finding) =>
         result.FindingCategories.TryGetValue(finding.Fingerprint, out string? category)
             ? category : RuleTaxonomy.Canonical(finding.RuleId);
@@ -380,7 +383,7 @@ public static class FindingStore
             command.Parameters.AddWithValue("$repository", repository);
             command.Parameters.AddWithValue("$scope", scope);
             command.Parameters.AddWithValue("$anchor", anchor);
-            command.Parameters.AddWithValue("$category", RuleTaxonomy.StorageCategory(Category(result, f)));
+            command.Parameters.AddWithValue("$category", StorageCategory(result, Category(result, f)));
             command.Parameters.AddWithValue("$path", Hash(key, "path-v1", f.FilePath));
             command.Parameters.AddWithValue("$start", f.StartLine);
             command.Parameters.AddWithValue("$end", f.EndLine ?? f.StartLine);
@@ -423,7 +426,7 @@ public static class FindingStore
                 ct.ThrowIfCancellationRequested();
                 string id = rows.GetString(0);
                 if (observed.Contains(id) || rows.GetString(8) == "resolved") continue;
-                string category = RuleTaxonomy.StorageCategory(rows.GetString(1));
+                string category = StorageCategory(result, rows.GetString(1));
                 reviewedPaths.TryGetValue(rows.GetString(6), out FileDiff? file);
                 (string status, int? line) = MatchHistoricalAnchor(key, file, category, rows.GetString(7), ref anchorBudget, ct);
                 string pattern = status == "exact-match" && line is { } matched && file is not null &&
