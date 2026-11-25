@@ -142,6 +142,44 @@ public class FindingStoreTests
         Assert.Equal(("not-checked", (int?)null), FindingStore.MatchHistoricalAnchor(key, file, "hardcoded-credential", anchor, ref budget, default));
     }
 
+    [Fact]
+    public void Lifecycle_is_separate_from_observation_and_rediscovery_regresses_resolved_state()
+    {
+        string directory = Directory.CreateTempSubdirectory().FullName;
+        string database = Path.Combine(directory, "history.db");
+        byte[] key = new byte[32];
+        try
+        {
+            ReviewResult initial = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", "scope", "revision", initial);
+            Assert.Equal(new LocalFindingState("open", "new"), initial.LocalFindingStates["fp"]);
+            using (var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = database, Pooling = false }.ToString()))
+            {
+                db.Open();
+                using SqliteCommand command = db.CreateCommand();
+                // Simulate a future independently verified resolution.
+                command.CommandText = "INSERT INTO finding_lifecycle(id,state) VALUES ($id,'resolved')";
+                command.Parameters.AddWithValue("$id", initial.PersistentFindingIds["fp"]);
+                command.ExecuteNonQuery();
+            }
+            var absent = new ReviewResult();
+            FindingStore.Record(database, key, "repo", "scope", "revision", absent);
+            Assert.Empty(Assert.IsType<List<HistoricalFinding>>(absent.UnverifiedHistory));
+            ReviewResult cached = Make("hardcoded-secret", 59);
+            cached.CacheHit = true;
+            FindingStore.ReadIdentities(database, key, "repo", "scope", cached, default);
+            Assert.Empty(cached.LocalFindingStates);
+            ReviewResult rediscovered = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", "scope", "revision", rediscovered);
+            Assert.Equal(new LocalFindingState("regressed", "known"), rediscovered.LocalFindingStates["fp"]);
+            Assert.Equal(initial.PersistentFindingIds["fp"], rediscovered.PersistentFindingIds["fp"]);
+            var omitted = new ReviewResult();
+            FindingStore.Record(database, key, "repo", "scope", "revision", omitted);
+            Assert.Equal("regressed", Assert.Single(Assert.IsType<List<HistoricalFinding>>(omitted.UnverifiedHistory)).Lifecycle);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     static ReviewResult Make(string rule, int line)
     {
         var result = new ReviewResult();
