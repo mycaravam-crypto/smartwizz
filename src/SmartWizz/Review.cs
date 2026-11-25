@@ -46,6 +46,11 @@ public sealed class ReviewResult
     public int RawDetections { get; set; }
     public int DuplicateDetections => Math.Max(0, RawDetections - Findings.Count);
     public int? KnownFindings { get; set; }
+    public double? HistoryElapsedMilliseconds { get; set; }
+    public bool CacheHit { get; set; }
+    public int CachedRequests { get; set; }
+    public Dictionary<string, string[]> FindingSourceRules { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, string> FindingCategories { get; } = new(StringComparer.Ordinal);
     internal Dictionary<string, string> FindingAnchors { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, string> PersistentFindingIds { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, int[]> FindingSourceRequests { get; } = new(StringComparer.Ordinal);
@@ -245,15 +250,19 @@ public static partial class Review
         result.RawDetections = all.Count;
         // Within a run, only equivalent categories at the same validated location merge.
         // Keep legacy fingerprints on representatives for checkpoint compatibility.
-        var representatives = all.GroupBy(f => (f.FilePath, f.StartLine, End: f.EndLine ?? f.StartLine, Rule: RuleTaxonomy.Canonical(f.RuleId)))
+        var byPath = files.ToDictionary(f => f.Path, StringComparer.Ordinal);
+        var representatives = all.GroupBy(f => (f.FilePath, f.StartLine, End: f.EndLine ?? f.StartLine,
+            Rule: RuleTaxonomy.Canonical(f.RuleId, byPath[f.FilePath].NewLines[f.StartLine])))
             .Select(g => (Finding: g.OrderByDescending(f => f.Severity).ThenByDescending(f => f.Confidence).First(),
-                Requests: g.Select(f => origins[f]).Distinct().Order().ToArray())).ToList();
+                Requests: g.Select(f => origins[f]).Distinct().Order().ToArray(),
+                Rules: g.Select(f => f.RuleId).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
+                Category: g.Key.Rule)).ToList();
         // Legacy fingerprint collisions can occur on identical statements in different locations.
         // Disambiguate those instances rather than silently discarding distinct defects.
         var collisions = representatives.GroupBy(f => f.Finding.Fingerprint).Where(g => g.Count() > 1)
             .Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
         result.Findings = [];
-        foreach ((Finding representative, int[] requests) in representatives)
+        foreach ((Finding representative, int[] requests, string[] rules, string category) in representatives)
         {
             Finding finding = collisions.Contains(representative.Fingerprint)
                 ? representative with
@@ -265,16 +274,15 @@ public static partial class Review
             result.Findings.Add(finding);
             result.FindingRequests.Add(finding.Fingerprint, origins[representative]);
             result.FindingSourceRequests.Add(finding.Fingerprint, requests);
+            result.FindingSourceRules.Add(finding.Fingerprint, rules);
+            result.FindingCategories.Add(finding.Fingerprint, category);
         }
         result.Findings = [.. result.Findings.OrderByDescending(f => f.Severity).ThenBy(f => f.FilePath, StringComparer.Ordinal).ThenBy(f => f.StartLine)];
-        var byPath = files.ToDictionary(f => f.Path, StringComparer.Ordinal);
         foreach (Finding finding in result.Findings)
         {
             FileDiff file = byPath[finding.FilePath];
             // Include immediate visible context to distinguish repeated statements.
-            string anchor = string.Join("\n", Enumerable.Range(Math.Max(1, finding.StartLine - 1), finding.StartLine == 1 ? 2 : 3)
-                .Select(line => file.NewLines.TryGetValue(line, out string? value) ? value.Trim() : ""));
-            result.FindingAnchors.Add(finding.Fingerprint, anchor);
+            result.FindingAnchors.Add(finding.Fingerprint, SourceAnchor(file, finding.StartLine));
         }
         foreach (Finding f in result.Findings)
             if (result.Checks?.TryGetValue(f.RuleId, out CheckCounts? counts) == true) counts.Findings++;
@@ -286,6 +294,10 @@ public static partial class Review
         result.ReviewElapsedMilliseconds = Stopwatch.GetElapsedTime(reviewStarted).TotalMilliseconds;
         return result;
     }
+
+    internal static string SourceAnchor(FileDiff file, int startLine) =>
+        string.Join("\n", Enumerable.Range(Math.Max(1, startLine - 1), startLine == 1 ? 2 : 3)
+            .Select(line => file.NewLines.TryGetValue(line, out string? value) ? value.Trim() : ""));
 
     // Fills prompts/review-format.md. [[fix:...]] spans stay only when fixes are wanted: suggestedFix is the longest
     // output field, and output tokens are the slow part on local hardware.
