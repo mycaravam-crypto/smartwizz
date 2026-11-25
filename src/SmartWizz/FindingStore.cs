@@ -55,7 +55,9 @@ public static class FindingStore
         if (key.Length != 32) throw new ArgumentException("invalid history key", nameof(key));
         using var db = new SqliteConnection(new SqliteConnectionStringBuilder
         {
-            DataSource = database, Pooling = false, DefaultTimeout = 5,
+            DataSource = database,
+            Pooling = false,
+            DefaultTimeout = 5,
         }.ToString());
         db.Open();
         using SqliteTransaction tx = db.BeginTransaction();
