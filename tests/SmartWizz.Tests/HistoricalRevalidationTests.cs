@@ -19,6 +19,16 @@ public class HistoricalRevalidationTests
         Assert.False(verdicts.ContainsKey("unknown"));
     }
 
+    [Theory]
+    [InlineData("```json\n", "\n```")]
+    [InlineData("```\n", "\n```")]
+    [InlineData("", "")]
+    public void Accepts_raw_and_fenced_json(string prefix, string suffix)
+    {
+        const string payload = """{"results":[{"id":"a","status":"supported"}]}""";
+        Assert.Equal("supported", HistoricalRevalidation.Parse(prefix + payload + suffix, ["a"])["a"]);
+    }
+
     [Fact]
     public void Revalidation_disables_cache_even_when_config_enables_it()
     {
