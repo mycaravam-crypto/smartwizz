@@ -403,6 +403,7 @@ public static class FindingStore
         // Historical omissions are a report projection, not a stored resolution transition.
         // Include all records in this exact checkout/scope, even when the file was not reviewed.
         List<HistoricalFinding> unverified = [];
+        List<HistoricalRevalidation.Candidate> candidates = [];
         var observed = ids.Values.ToHashSet(StringComparer.Ordinal);
         var reviewedPaths = result.ReviewedSourceFiles.ToDictionary(f => Hash(key, "path-v1", f.Path), StringComparer.Ordinal);
         int anchorBudget = 10_000;
@@ -428,6 +429,14 @@ public static class FindingStore
                 string pattern = status == "exact-match" && line is { } matched && file is not null &&
                     file.Path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
                     ? RuleTaxonomy.HistoricalPattern(category, file.NewLines[matched]) : "not-checked";
+                if (result.CollectHistoricalCandidates && status == "exact-match" && line is { } candidateLine && file is not null &&
+                    HistoricalRevalidation.CreateCandidate(id, (Severity)rows.GetInt32(2), category, file, candidateLine) is { } candidate)
+                {
+                    candidates.Add(candidate);
+                    if (candidates.Count > HistoricalRevalidation.MaxCandidates)
+                        candidates = [.. candidates.OrderByDescending(c => c.Severity).ThenBy(c => c.Id, StringComparer.Ordinal)
+                            .Take(HistoricalRevalidation.MaxCandidates)];
+                }
                 unverified.Add(new HistoricalFinding(id, category,
                     (Severity)rows.GetInt32(2), rows.GetInt32(3), rows.GetInt64(4), rows.GetInt64(5), status, line, rows.GetString(8), pattern));
             }
@@ -435,6 +444,7 @@ public static class FindingStore
         ct.ThrowIfCancellationRequested();
         tx.Commit();
         result.UnverifiedHistory = unverified;
+        result.HistoricalCandidates.AddRange(candidates);
         foreach ((string fingerprint, LocalFindingState state) in states) result.LocalFindingStates.Add(fingerprint, state);
         result.KnownFindings = known;
         foreach ((string fingerprint, string id) in ids) result.PersistentFindingIds.Add(fingerprint, id);
