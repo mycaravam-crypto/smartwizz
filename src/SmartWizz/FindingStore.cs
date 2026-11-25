@@ -82,10 +82,10 @@ public static class FindingStore
                 """;
             schema.ExecuteNonQuery();
         }
-        List<(Finding Finding, string Anchor)> entries = result.Findings.Where(f => result.FindingAnchors.ContainsKey(f.Fingerprint))
+        var entries = result.Findings.Where(f => result.FindingAnchors.ContainsKey(f.Fingerprint))
             .Select(f => (Finding: f, Anchor: Hash(key, "anchor-v1", f.FilePath,
                 RuleTaxonomy.Canonical(f.RuleId), result.FindingAnchors[f.Fingerprint]))).ToList();
-        HashSet<string> repeated = entries.GroupBy(e => e.Anchor).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
+        var repeated = entries.GroupBy(e => e.Anchor).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
         var ids = new Dictionary<string, string>(StringComparer.Ordinal);
         int known = 0;
         foreach ((Finding finding, string sourceAnchor) in entries)
