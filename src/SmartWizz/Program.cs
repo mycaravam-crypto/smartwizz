@@ -162,7 +162,7 @@ public static class Program
         (ReviewPlan plan, ReviewResult result, ReviewCheckpoint? next) = await IncrementalReview.RunAsync(
             opt, previous, cfg.Review, provider, prompts, reviewScope, ruleset, Console.Error, ct, progress, cfg.Provider.Model);
 
-        if (opt.Remember && !result.CacheHit)
+        if (opt.Remember)
             await FindingStore.TryRecordAsync(opt, reviewScope, result, Console.Error, ct);
         result.EndToEndMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         if (opt.Problems) Report.WriteProblems(result, Console.Out);
