@@ -34,7 +34,12 @@ internal static class HistoricalRevalidation
             result.HistoricalRevalidationAttempts = reply.Attempts;
             result.HistoricalVerdicts = Parse(reply.Content, candidates.Select(c => c.Id));
         }
-        catch (Exception e) when (e is SmartWizzException or JsonException)
+        catch (JsonException)
+        {
+            log.WriteLine("warning: historical revalidation returned invalid JSON; findings remain unverified");
+            result.HistoricalVerdicts = candidates.ToDictionary(c => c.Id, _ => "inconclusive", StringComparer.Ordinal);
+        }
+        catch (SmartWizzException)
         {
             log.WriteLine("warning: historical revalidation unavailable; findings remain unverified");
             result.HistoricalVerdicts = candidates.ToDictionary(c => c.Id, _ => "inconclusive", StringComparer.Ordinal);
@@ -46,7 +51,12 @@ internal static class HistoricalRevalidation
     {
         var verdicts = ids.ToDictionary(id => id, _ => "inconclusive", StringComparer.Ordinal);
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        using var doc = JsonDocument.Parse(reply);
+        string json = reply.Trim();
+        if (json.StartsWith("```json", StringComparison.OrdinalIgnoreCase) && json.EndsWith("```", StringComparison.Ordinal))
+            json = json[7..^3].Trim();
+        else if (json.StartsWith("```", StringComparison.Ordinal) && json.EndsWith("```", StringComparison.Ordinal))
+            json = json[3..^3].Trim();
+        using var doc = JsonDocument.Parse(json);
         if (doc.RootElement.ValueKind != JsonValueKind.Object ||
             !doc.RootElement.TryGetProperty("results", out JsonElement entries) || entries.ValueKind != JsonValueKind.Array)
             return verdicts;
