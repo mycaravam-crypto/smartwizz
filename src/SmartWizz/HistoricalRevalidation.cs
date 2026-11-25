@@ -46,7 +46,7 @@ internal static class HistoricalRevalidation
     {
         var verdicts = ids.ToDictionary(id => id, _ => "inconclusive", StringComparer.Ordinal);
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        using JsonDocument doc = JsonDocument.Parse(reply);
+        using var doc = JsonDocument.Parse(reply);
         if (doc.RootElement.ValueKind != JsonValueKind.Object ||
             !doc.RootElement.TryGetProperty("results", out JsonElement entries) || entries.ValueKind != JsonValueKind.Array)
             return verdicts;
