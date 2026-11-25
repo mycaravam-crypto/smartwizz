@@ -126,7 +126,9 @@ public sealed class Ruleset
                 throw Error($"{c.Id}: invalid severity {c.Severity}");
 
             if (c.SeverityMode is not ("advisory" or "minimum" or "fixed") || c.Categories is null ||
-                c.Categories.Any(category => !RuleTaxonomy.IsCacheable(category) || RuleTaxonomy.Canonical(category) != category))
+                c.Categories.Any(category => category is null || category.Length > 128 ||
+                    !Regex.IsMatch(category, "^[a-z0-9]+(?:-[a-z0-9]+)*$", RegexOptions.CultureInvariant) ||
+                    category.StartsWith("std-", StringComparison.Ordinal) || RuleTaxonomy.Canonical(category) != category))
                 throw Error($"{c.Id}: invalid severityMode or categories");
 
             var files = new List<string>();
@@ -173,6 +175,8 @@ public sealed class Ruleset
     }
 
     internal bool ContainsRule(string rule) => Checks.Any(check => string.Equals(check.Id, rule, StringComparison.Ordinal));
+
+    internal bool ContainsCategory(string category) => Checks.Any(check => check.Source.Categories.Contains(category, StringComparer.Ordinal));
 
     // Applicable checks, highest severity first; ties keep file order, so pass 1 always gets the most important ones.
     public List<Check> Select(IReadOnlyCollection<FileDiff> batch) =>
