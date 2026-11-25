@@ -35,6 +35,10 @@ public static class Report
         r.RawDetections,
         r.DuplicateDetections,
         r.KnownFindings,
+        r.HistoryElapsedMilliseconds,
+        r.CacheHit,
+        r.CachedRequests,
+        r.FindingSourceRules,
         r.PersistentFindingIds,
         r.SystemPromptCharacters,
         r.UserPromptCharacters,
@@ -103,7 +107,8 @@ public static class Report
 
     static string? TimingSummary(ReviewResult r)
     {
-        if (r.ReviewElapsedMilliseconds is not { } elapsed) return null;
+        if (r.ReviewElapsedMilliseconds is not { } elapsed)
+            return r.CacheHit && r.EndToEndMilliseconds is { } cached ? $"Through report preparation: {Duration(cached)}" : null;
         double provider = r.RequestTimings.Sum(t => t.ElapsedMilliseconds);
         string summary = $"Review phase: {Duration(elapsed)} | LLM calls: {Duration(provider)} cumulative";
         if (r.RequestTimings.Count > 1)
@@ -146,7 +151,9 @@ public static class Report
             console.Write(new Text(Safe($"Ruleset: {r.RulesetName} {r.RulesetVersion}\n")));
         console.Write(new Text($"{r.Requests} request(s)\n"));
         console.Write(new Text($"Detections: {r.RawDetections} | Duplicates merged: {r.DuplicateDetections}\n"));
-        if (r.KnownFindings is { } known) console.Write(new Text($"Previously observed: {known}\n"));
+        if (r.KnownFindings is { } known) console.Write(new Text($"Previously observed: {known} | New: {r.PersistentFindingIds.Count - known}\n"));
+        if (r.CacheHit) console.Write(new Text($"Cache hit: {r.CachedRequests} request(s) avoided; historical metadata only\n"));
+        if (r.HistoryElapsedMilliseconds is { } history) console.Write(new Text($"History: {Duration(history)}\n"));
         if (TimingSummary(r) is { } timingSummary)
             console.Write(new Text(timingSummary + "\n"));
 
@@ -171,11 +178,11 @@ public static class Report
                 body.AddRow(new Text(Safe(fix)));
             }
             body.AddRow(new Text(""));
-            body.AddRow(new Text(Safe($"Rule: {f.RuleId} | Confidence: {FormattableString.Invariant($"{f.Confidence * 100:0}%")}  | fp {f.Fingerprint}")));
+            body.AddRow(new Text(Safe($"Rule: {f.RuleId} | Confidence: {FormattableString.Invariant($"{f.Confidence * 100:0}%")} | fp {f.Fingerprint}")));
             if (FindingTiming(r, f) is { } findingTiming)
                 body.AddRow(new Text(findingTiming));
             if (r.PersistentFindingIds.TryGetValue(f.Fingerprint, out string? persistentId))
-                body.AddRow(new Text($"Finding ID: {persistentId}"));
+                body.AddRow(new Text($"Finding ID: SW-{persistentId[..Math.Min(12, persistentId.Length)]}"));
             var panel = new Panel(body)
             {
                 Header = new PanelHeader($"[{color} bold]{f.Severity.ToString().ToUpperInvariant()}[/]"),
@@ -194,7 +201,9 @@ public static class Report
         w.WriteLine(Summary(r));
         if (TimingSummary(r) is { } timingSummary) w.WriteLine(timingSummary);
         w.WriteLine($"Detections: {r.RawDetections} | Duplicates merged: {r.DuplicateDetections}");
-        if (r.KnownFindings is { } known) w.WriteLine($"Previously observed: {known}");
+        if (r.KnownFindings is { } known) w.WriteLine($"Previously observed: {known} | New: {r.PersistentFindingIds.Count - known}");
+        if (r.CacheHit) w.WriteLine($"Cache hit: {r.CachedRequests} request(s) avoided; historical metadata only");
+        if (r.HistoryElapsedMilliseconds is { } history) w.WriteLine($"History: {Duration(history)}");
         if (r.Models.Count > 0)
             w.WriteLine($"Reviewed by: {string.Join(", ", r.Models)}");
         if (r.RulesetName is not null)
