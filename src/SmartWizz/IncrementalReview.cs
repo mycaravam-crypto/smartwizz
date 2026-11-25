@@ -82,7 +82,7 @@ public static class IncrementalReview
     }
 
     static bool CacheFailure(Exception e) => e is SqliteException or IOException or UnauthorizedAccessException or
-        FormatException or ArgumentException or System.Text.Json.JsonException or InvalidOperationException or SmartWizzException;
+        FormatException or ArgumentException or System.Text.Json.JsonException or InvalidOperationException or SmartWizzException or System.Security.Cryptography.CryptographicException or PlatformNotSupportedException;
 
     // since..head also holds whatever merging the base brought in: only lines in the PR's own diff can be reported.
     // Re-checks keep the whole delta, because a fix can vanish from the PR diff (e.g. deleting a file the PR added).
