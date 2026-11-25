@@ -95,7 +95,7 @@ internal sealed class ReviewCache(string database, byte[] key, string cacheKey) 
         foreach (Item item in snapshot.Items)
         {
             ct.ThrowIfCancellationRequested();
-            if (item.File < 0 || item.File >= files.Count || !(RuleTaxonomy.IsCacheable(item.Rule) || ruleset?.ContainsRule(item.Rule) == true || ruleset?.ContainsCategory(item.Rule) == true) ||
+            if (item.File < 0 || item.File >= files.Count || !(RuleTaxonomy.IsCacheable(item.Rule) || ruleset?.ContainsRule(item.Rule) == true || ruleset?.ContainsCategory(item.Rule) == true || ruleset?.ContainsAlias(item.Rule) == true) ||
                 !Enum.IsDefined(item.Severity) || !double.IsFinite(item.Confidence) || item.Confidence < cfg.MinConfidence || item.Confidence > 1)
                 return null;
             FileDiff file = files[item.File];
@@ -105,7 +105,7 @@ internal sealed class ReviewCache(string database, byte[] key, string cacheKey) 
             string fingerprint = Review.Fingerprint(item.Rule, file.Path, line);
             // A legacy collision cannot be reconstructed without additional provenance. Re-review instead.
             if (result.FindingAnchors.ContainsKey(fingerprint)) return null;
-            string category = RuleTaxonomy.Canonical(item.Rule, line);
+            string category = ruleset?.CanonicalCategory(item.Rule, line) ?? RuleTaxonomy.Canonical(item.Rule, line);
             result.Findings.Add(new Finding(item.Rule, item.Severity, category,
                 "Cached finding metadata from an earlier successful inspection; rerun with --no-cache for details.",
                 file.Path, item.Start, item.End, item.Confidence, fingerprint));
@@ -135,7 +135,7 @@ internal sealed class ReviewCache(string database, byte[] key, string cacheKey) 
         foreach (Finding finding in result.Findings)
         {
             int index = files.FindIndex(f => f.Path == finding.FilePath);
-            if (index < 0 || !(RuleTaxonomy.IsCacheable(finding.RuleId) || result.ActiveRuleset?.ContainsRule(finding.RuleId) == true || result.ActiveRuleset?.ContainsCategory(finding.RuleId) == true) ||
+            if (index < 0 || !(RuleTaxonomy.IsCacheable(finding.RuleId) || result.ActiveRuleset?.ContainsRule(finding.RuleId) == true || result.ActiveRuleset?.ContainsCategory(finding.RuleId) == true || result.ActiveRuleset?.ContainsAlias(finding.RuleId) == true) ||
                 !files[index].NewLines.TryGetValue(finding.StartLine, out string? line) ||
                 Review.Fingerprint(finding.RuleId, finding.FilePath, line) != finding.Fingerprint) return;
             items.Add(new Item(index, finding.StartLine, finding.EndLine, finding.RuleId, finding.Severity, finding.Confidence));
