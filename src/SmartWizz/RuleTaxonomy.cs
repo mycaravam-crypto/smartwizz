@@ -1,6 +1,8 @@
+using System.Text.RegularExpressions;
+
 namespace SmartWizz;
 
-public static class RuleTaxonomy
+public static partial class RuleTaxonomy
 {
     // Only explicitly equivalent categories. Broad configuration and off-by-one
     // rules are deliberately not equated with credentials or array bounds.
@@ -25,13 +27,26 @@ public static class RuleTaxonomy
              source.Contains("UPDATE ", StringComparison.OrdinalIgnoreCase)) &&
             (source.Contains("$\"", StringComparison.Ordinal) || source.Contains("+", StringComparison.Ordinal)))
             return "sql-injection";
-        if (category is "std-hardcoded-config" or "hardcoded-config" &&
-            (source.Contains("password", StringComparison.OrdinalIgnoreCase) ||
-             source.Contains("secret", StringComparison.OrdinalIgnoreCase) ||
-             source.Contains("apiKey", StringComparison.OrdinalIgnoreCase)) &&
-            source.Contains("=", StringComparison.Ordinal) && source.Contains('"'))
+        if (category is "std-hardcoded-config" or "hardcoded-config" && CredentialAssignment().IsMatch(source))
             return "hardcoded-credential";
         return category;
+    }
+
+    // Narrow, best-effort protection for direct quoted credential assignments.
+    // Do not persist the captured literals or treat this as a general secret scanner.
+    [GeneratedRegex("""\b\w*(?:password|secret|api_?key|access_?token)\w*\s*(?:\{\s*get;\s*(?:(?:private\s+)?set;|init;)?\s*\}\s*)?=\s*"(?<value>(?:\\.|[^"\\\r\n]){4,2048})" """, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace)]
+    private static partial Regex CredentialAssignment();
+
+    internal static string[] CredentialLiterals(IEnumerable<string> lines) =>
+        [.. lines.SelectMany(line => CredentialAssignment().Matches(line).Cast<Match>())
+            .Select(match => match.Groups["value"].Value).Distinct(StringComparer.Ordinal)
+            .OrderByDescending(value => value.Length)];
+
+    internal static string Redact(string text, IEnumerable<string> literals)
+    {
+        foreach (string literal in literals)
+            text = text.Replace(literal, "[REDACTED]", StringComparison.Ordinal);
+        return text;
     }
 
     // Exact aliases supported by the bundled taxonomy. Unknown model text must
