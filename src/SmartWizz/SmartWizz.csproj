@@ -13,6 +13,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="SmartWizz.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Spectre.Console" Version="0.49.1" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.15" />
     <!-- Replace the vulnerable legacy native SQLite dependency (GHSA-2m69-gcr7-jv3q). -->
