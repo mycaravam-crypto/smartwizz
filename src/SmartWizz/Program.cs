@@ -169,7 +169,7 @@ public static class Program
                 JsonSerializer.Serialize(new { cfg.Provider, cfg.Review, cfg.AzureDevOps, cfg.GitHub }) +
                 legacySystem + prompts.Review + prompts.Standards + prompts.Revalidation + (ruleset?.Sha256 ?? ""))));
             string historyScope = FindingStore.PolicyScope(ruleset?.Sha256, legacyStandard);
-            await FindingStore.TryRecordAsync(opt, historyScope, result, Console.Error, ct, legacyScope);
+            await FindingStore.TryRecordAsync(opt, historyScope, result, Console.Error, legacyScope, ct);
         }
         result.EndToEndMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         if (opt.Problems) Report.WriteProblems(result, Console.Out);
