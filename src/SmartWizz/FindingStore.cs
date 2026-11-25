@@ -58,7 +58,8 @@ public static class FindingStore
     }
 
     static string StorageCategory(ReviewResult result, string category) =>
-        result.ActiveRuleset?.ContainsRule(category) == true ? category : RuleTaxonomy.StorageCategory(category);
+        result.ActiveRuleset?.ContainsRule(category) == true || result.ActiveRuleset?.ContainsCategory(category) == true
+            ? category : RuleTaxonomy.StorageCategory(category);
 
     static string Category(ReviewResult result, Finding finding) =>
         result.FindingCategories.TryGetValue(finding.Fingerprint, out string? category)
