@@ -170,6 +170,8 @@ public sealed class Ruleset
         return (effective, [.. policies.Select(c => c.Id).Order(StringComparer.Ordinal)]);
     }
 
+    internal bool ContainsRule(string rule) => Checks.Any(check => string.Equals(check.Id, rule, StringComparison.Ordinal));
+
     // Applicable checks, highest severity first; ties keep file order, so pass 1 always gets the most important ones.
     public List<Check> Select(IReadOnlyCollection<FileDiff> batch) =>
         [.. Checks.Where(c => batch.Any(c.AppliesTo)).OrderByDescending(c => c.Severity)];
