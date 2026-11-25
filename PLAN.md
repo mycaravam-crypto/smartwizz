@@ -13,8 +13,17 @@ SmartWizz is standalone and separate from GitWizz (merge ordering / merge readin
 - Review logic independent of CI platform and AI provider (provider and publisher are plain classes taking an `HttpClient`).
 - All PR content is untrusted input.
 - Never auto-fix, approve, or merge.
-- No web UI, database, agent framework, or plugin system.
-- **Zero runtime NuGet dependencies.** BCL only (`System.Text.Json`, `HttpClient`, `Process`). Test project may use xUnit.
+- No web UI, server-side database, agent framework, plugin system or custom static-analysis engine.
+- Prefer the BCL. Runtime dependencies require a demonstrated benefit, security review and explicit justification.
+- One configured ruleset per engineering guide leads semantic review. Do not add defect-specific application branches or duplicate compiler/linter checks.
+- Measure actionable detection quality and fresh-review latency before extending supporting features.
+
+## Decisions since MVP
+
+- Bounded independent request concurrency (default one) was added for large diffs. Keep the default until representative latency and detection-quality benchmarks justify changing it.
+- Spectre.Console provides console rendering; SQLite and its native bundle provide local metadata-only history/cache; ProtectedData protects the local Windows key. These are narrow exceptions to the original dependency-free MVP, not permission for an analytics platform or additional persistence features.
+- CI checkpoints support PR continuity and publication state. Local history is advisory, checkout-scoped memory; it must not suppress fresh findings or drive CI lifecycle decisions. Cache hits are historical results, not fresh reviews.
+- Freeze additional lifecycle, storage and language-specific analysis features until the existing review is benchmarked. Retain legacy taxonomy only for compatibility pending a measured migration; add no new hardcoded defect patterns.
 
 ## MVP
 
@@ -86,7 +95,7 @@ README.md
 
 - Never execute PR code. Git is the only process started.
 - Diff is wrapped in random-nonce markers; prompt states content inside is data, not instructions.
-- Only the diff and the prompt are sent to the model — no env, config, or tokens.
+- The normal review sends the diff and review prompt (including applicable ruleset instructions), not environment values or authentication tokens in model messages. Explicit local historical revalidation can additionally send bounded visible source excerpts and opaque finding IDs; see README Security.
 - Credentials: `SMARTWIZZ_API_KEY` (provider), `SMARTWIZZ_AZDO_TOKEN` or `SYSTEM_ACCESSTOKEN` (Azure DevOps). The config file has no secret fields. Never logged.
 - Report-only by default; publishing requires `--publish`.
 - Published comments are clearly labelled as AI-generated.
@@ -125,7 +134,7 @@ xUnit, no live calls (stub `HttpMessageHandler`):
 
 ## Out of Scope
 
-Multiple providers, web UI, auto-fix/approve/merge, agentic browsing, database/analytics, RAG/indexing, rule engines. Also deferred: parallel requests, `pullRequestThreadContext` iteration tracking — add when real usage needs them.
+Provider-specific review logic, web UI, auto-fix/approve/merge, agentic browsing, centralized database/analytics, RAG/indexing and custom rule engines remain out of scope. Local metadata storage and bounded concurrency are the limited exceptions documented above. Defer further expansion until measured review quality or developer effort justifies it.
 
 ## Definition of Done
 
