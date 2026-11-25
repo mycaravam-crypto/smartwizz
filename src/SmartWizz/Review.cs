@@ -30,6 +30,10 @@ public sealed class CheckCounts
     public int Sent { get; set; }
     // Findings with the check's ID that survived validation and deduplication.
     public int Findings { get; set; }
+    // A rejected response item leaves the entire request's rule coverage uncertain.
+    public int RequestsWithRejections { get; set; }
+    public string Status => RequestsWithRejections > 0 ? "incomplete" : Sent == 0 ? "not-applicable-to-reviewed-files" :
+        Findings > 0 ? "findings-reported" : "no-findings-reported";
 }
 
 // A logical completion includes retries, backoff and fallback attempts; not server-only inference time.
@@ -87,6 +91,9 @@ public sealed class ReviewResult
     public string? RulesetSha256 { get; set; }
     // Every check of the ruleset, including those never sent, so triggers can be tuned from reports. Null without a ruleset.
     public SortedDictionary<string, CheckCounts>? Checks { get; set; }
+    public IReadOnlyList<UncheckedRef>? RulesetNotChecked => ActiveRuleset?.NotChecked;
+    public string? RulesetCoverageScope => ActiveRuleset is null ? null : CacheHit ? "historical-coverage-unavailable" :
+        SkippedFiles.Count > 0 ? "reviewed-files-only-skips-present" : "reviewed-files-only";
     // Provider calls made; more than the number of batches means standard checks needed extra passes.
     public int Requests { get; set; }
     public long SystemPromptCharacters { get; set; }
@@ -101,7 +108,7 @@ public static partial class Review
     // a narrowed diff no longer shares the prompt prefix of pass 1, so servers with prefix caching process it again.
     const double NarrowBelow = 0.5;
 
-    sealed record BatchOutcome(List<Finding> Findings, List<string> Checks, List<string> Rejected, List<ReviewRequestTiming> Timings);
+    sealed record BatchOutcome(List<Finding> Findings, List<string> Checks, List<string> IncompleteChecks, List<string> Rejected, List<ReviewRequestTiming> Timings);
 
     public static async Task<ReviewResult> RunAsync(
         List<FileDiff> files, ReviewConfig cfg, Provider provider, ReviewPrompts prompts, CancellationToken ct, Ruleset? ruleset = null, IProgress<ReviewProgress>? progress = null)
@@ -175,6 +182,7 @@ public static partial class Review
             List<FileDiff> b = batches[index];
             var localFindings = new List<Finding>();
             var localChecks = new List<string>();
+            var incompleteChecks = new List<string>();
             var rejected = new List<string>();
             var timings = new List<ReviewRequestTiming>();
             int request = offsets[index];
@@ -209,7 +217,7 @@ public static partial class Review
                 }
             }
 
-            outcomes[index] = new BatchOutcome(localFindings, localChecks, rejected, timings);
+            outcomes[index] = new BatchOutcome(localFindings, localChecks, incompleteChecks, rejected, timings);
             lock (progressGate)
             {
                 reviewed += b.Count;
@@ -231,7 +239,9 @@ public static partial class Review
                 long started = Stopwatch.GetTimestamp();
                 Completion reply = await provider.CompleteAsync(prompts.System, userMessage, token, schema);
                 double elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                int rejectedBefore = rejected.Count;
                 List<Finding> findings = Parse(reply.Content, sent.ToDictionary(f => f.Path), cfg.MinConfidence, rejected, standardIds, standardsOnly, references);
+                if (rejected.Count > rejectedBefore && standardIds is not null) incompleteChecks.AddRange(standardIds);
                 timings.Add(new(id, reply.Model, elapsed, sent.Count, prompts.System.Length, userMessage.Length,
                     reply.PromptTokens, reply.CompletionTokens, findings.Count, standardsOnly, reply.Attempts, reply.ReasoningTokens));
                 foreach (Finding finding in findings)
@@ -256,6 +266,7 @@ public static partial class Review
             all.AddRange(outcome.Findings);
             result.Rejected.AddRange(outcome.Rejected);
             foreach (string id in outcome.Checks) result.Checks![id].Sent++;
+            foreach (string id in outcome.IncompleteChecks) result.Checks![id].RequestsWithRejections++;
             foreach (ReviewRequestTiming timing in outcome.Timings)
             {
                 result.RequestTimings.Add(timing);
