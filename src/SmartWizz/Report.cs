@@ -26,6 +26,9 @@ public static class Report
         r.RulesetVersion,
         r.RulesetSha256,
         r.Requests,
+        r.ReviewElapsedMilliseconds,
+        r.RequestTimings,
+        r.FindingRequests,
         r.SystemPromptCharacters,
         r.UserPromptCharacters,
         r.PromptTokens,
@@ -81,6 +84,38 @@ public static class Report
     // Treat model-generated text as data, never as Spectre markup or terminal commands.
     static string Safe(string value) => string.Concat(value.Where(c => !char.IsControl(c) || c == '\n' || c == '\t'));
 
+    static string Duration(double milliseconds) =>
+        FormattableString.Invariant($"{milliseconds / 1000:0.00}s");
+
+    static string? FindingTiming(ReviewResult r, Finding f)
+    {
+        if (!r.FindingRequests.TryGetValue(f.Fingerprint, out int request)) return null;
+        ReviewRequestTiming? timing = r.RequestTimings.FirstOrDefault(t => t.Request == request);
+        return timing is null ? null : $"Request #{request}: {Duration(timing.ElapsedMilliseconds)} (shared call)";
+    }
+
+    static string? TimingSummary(ReviewResult r)
+    {
+        if (r.ReviewElapsedMilliseconds is not { } elapsed) return null;
+        double provider = r.RequestTimings.Sum(t => t.ElapsedMilliseconds);
+        string summary = $"Review phase: {Duration(elapsed)} | LLM calls: {Duration(provider)}";
+        if (r.RequestTimings.Count > 0)
+        {
+            ReviewRequestTiming slowest = r.RequestTimings.MaxBy(t => t.ElapsedMilliseconds)!;
+            summary += $" | Avg: {Duration(provider / r.RequestTimings.Count)} | Slowest: #{slowest.Request} ({Duration(slowest.ElapsedMilliseconds)})";
+        }
+        return summary;
+    }
+
+    public static void WriteRequestTimings(ReviewResult r, TextWriter w)
+    {
+        foreach (ReviewRequestTiming t in r.RequestTimings)
+        {
+            string tokens = $"tokens in/out {t.PromptTokens?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "n/a"}/{t.CompletionTokens?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "n/a"}";
+            w.WriteLine(Safe($"Request #{t.Request}: {Duration(t.ElapsedMilliseconds)} | {t.Model} | {(t.StandardsOnly ? "standards" : "review")} | {t.Files} file(s) | {t.SystemCharacters + (long)t.UserCharacters} prompt chars | {tokens} | {t.AcceptedFindings} accepted before deduplication"));
+        }
+    }
+
     public static void WriteRichConsole(ReviewResult r, IAnsiConsole console)
     {
         Table table = new Table().Border(TableBorder.Rounded);
@@ -102,6 +137,8 @@ public static class Report
         if (r.RulesetName is not null)
             console.Write(new Text(Safe($"Ruleset: {r.RulesetName} {r.RulesetVersion}\n")));
         console.Write(new Text($"{r.Requests} request(s)\n"));
+        if (TimingSummary(r) is { } timingSummary)
+            console.Write(new Text(timingSummary + "\n"));
 
         foreach (Finding f in r.Findings.OrderByDescending(f => f.Severity))
         {
@@ -125,6 +162,8 @@ public static class Report
             }
             body.AddRow(new Text(""));
             body.AddRow(new Text(Safe($"Rule: {f.RuleId} | Confidence: {f.Confidence:P0} | fp {f.Fingerprint}")));
+            if (FindingTiming(r, f) is { } findingTiming)
+                body.AddRow(new Text(findingTiming));
             var panel = new Panel(body)
             {
                 Header = new PanelHeader($"[{color} bold]{f.Severity.ToString().ToUpperInvariant()}[/]"),
@@ -141,6 +180,7 @@ public static class Report
     public static void WriteConsole(ReviewResult r, TextWriter w)
     {
         w.WriteLine(Summary(r));
+        if (TimingSummary(r) is { } timingSummary) w.WriteLine(timingSummary);
         if (r.Models.Count > 0)
             w.WriteLine($"Reviewed by: {string.Join(", ", r.Models)}");
         if (r.RulesetName is not null)
@@ -159,6 +199,7 @@ public static class Report
                     w.WriteLine($"        {line.TrimEnd()}");
             }
             w.WriteLine($"    ({f.RuleId}, confidence {f.Confidence:0.00}, fp {f.Fingerprint})");
+            if (FindingTiming(r, f) is { } findingTiming) w.WriteLine("    " + findingTiming);
         }
         if (r.SkippedFiles.Count > 0)
         {
