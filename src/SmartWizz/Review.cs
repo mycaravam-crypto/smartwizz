@@ -39,7 +39,7 @@ public sealed record ReviewRequestTiming(int Request, string Model, double Elaps
 public sealed record LocalFindingState(string Lifecycle, string Observation);
 
 public sealed record HistoricalFinding(string Id, string Category, Severity LastObservedSeverity, int LastObservedLine,
-    long LastSeenUnixSeconds, long Observations, string AnchorEvidence = "not-checked", int? MatchedLine = null, string Lifecycle = "open");
+    long LastSeenUnixSeconds, long Observations, string AnchorEvidence = "not-checked", int? MatchedLine = null, string Lifecycle = "open", string PatternEvidence = "not-checked");
 
 public sealed class ReviewResult
 {
