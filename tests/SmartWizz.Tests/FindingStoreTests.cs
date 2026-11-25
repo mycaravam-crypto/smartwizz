@@ -90,7 +90,48 @@ public class FindingStoreTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
+    [Fact]
+    public void Inclusive_loop_alias_migration_preserves_canonical_identity_and_observations()
+    {
+        string directory = Directory.CreateTempSubdirectory().FullName;
+        string database = Path.Combine(directory, "history.db");
+        byte[] key = new byte[32];
+        try
+        {
+            const string line = "for (int i = 0; i <= values.Length; i++)";
+            const string source = "before\n" + line + "\nresult += values[i];";
+            ReviewResult canonical = Make("off-by-one", 71);
+            canonical.FindingAnchors["fp"] = source;
+            FindingStore.Record(database, key, "repo", "scope", "revision", canonical);
+            ReviewResult legacy = Make("index-out-of-range", 71);
+            legacy.FindingAnchors["fp"] = source;
+            FindingStore.Record(database, key, "repo", "scope", "revision", legacy);
+            ReviewResult current = Make("index-out-of-range", 71);
+            current.FindingAnchors["fp"] = source;
+            current.FindingCategories["fp"] = RuleTaxonomy.Canonical("index-out-of-range", line);
+            FindingStore.Record(database, key, "repo", "scope", "revision", current);
+            Assert.Equal(1, current.KnownFindings);
+            Assert.Equal(canonical.PersistentFindingIds["fp"], current.PersistentFindingIds["fp"]);
+            using var db = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = database,
+                Pooling = false,
+            }.ToString());
+            db.Open();
+            using SqliteCommand query = db.CreateCommand();
+            query.CommandText = "SELECT observations FROM findings";
+            Assert.Equal(3L, (long)query.ExecuteScalar()!);
+            query.CommandText = "SELECT COUNT(*) FROM findings";
+            Assert.Equal(1L, (long)query.ExecuteScalar()!);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     [Theory]
+    [InlineData("index-out-of-range", "for (int i = 0; i <= values.Length; i++)", "off-by-one")]
+    [InlineData("index-out-of-range", "for (int i = 0; i < values.Length; i++)", "index-out-of-range")]
+    [InlineData("index-out-of-range", "for (int i = 0; j <= values.Length; i++)", "index-out-of-range")]
+    [InlineData("index-out-of-range", "return values[index];", "index-out-of-range")]
     [InlineData("std-injection", """return $"SELECT * FROM T WHERE Id = {id}";""", "sql-injection")]
     [InlineData("std-injection", """Process.Start("cmd", input);""", "std-injection")]
     [InlineData("std-hardcoded-config", """string Password = "FAKE_TEST_SECRET";""", "hardcoded-credential")]
