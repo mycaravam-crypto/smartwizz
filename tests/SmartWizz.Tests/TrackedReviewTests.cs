@@ -58,7 +58,7 @@ public sealed class TrackedReviewTests : IDisposable
     static string ClassWith(string member, string name = "A") => $"class {name}\n{{\n{member}\n}}\n";
 
     static Func<HttpResponseMessage> Finding(string path, int line) => () => StubHandler.Chat(
-        $$"""{"findings":[{"ruleId":"null-dereference","severity":"high","title":"Possible null","message":"Guard it","filePath":"{{path}}","startLine":{{line}},"confidence":0.9}]}""");
+        $$"""{"findings":[{"ruleId":"null-dereference","severity":"high","title":"Possible null","message":"Guard it","filePath":"{{path}}","startLine":{{line}},"sourceRef":"F1-L{{line}}","confidence":0.9}]}""");
 
     static Func<HttpResponseMessage> Reply(string content) => () => StubHandler.Chat(content);
 
@@ -214,8 +214,8 @@ public sealed class TrackedReviewTests : IDisposable
         string head = IncrementalGitTests.Sha(_dir);
         _reviews.Enqueue(Reply("""
             {"findings":[
-              {"ruleId":"r","severity":"high","title":"mine","message":"m","filePath":"shared.txt","startLine":1,"confidence":0.9},
-              {"ruleId":"r","severity":"high","title":"theirs","message":"m","filePath":"shared.txt","startLine":30,"confidence":0.9}]}
+              {"ruleId":"r","severity":"high","title":"mine","message":"m","filePath":"shared.txt","startLine":1,"sourceRef":"F1-L1","confidence":0.9},
+              {"ruleId":"r","severity":"high","title":"theirs","message":"m","filePath":"shared.txt","startLine":30,"sourceRef":"F1-L30","confidence":0.9}]}
             """));
 
         ReviewRun run = await Run(head, baseline);
