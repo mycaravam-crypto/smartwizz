@@ -191,6 +191,27 @@ public static class FindingStore
         // A cached snapshot is not a new inspection; do not infer missing findings from it.
     }
 
+    // Evidence of a source anchor, not proof of a defect or its resolution.
+    internal static (string Status, int? Line) MatchHistoricalAnchor(byte[] key, FileDiff? file, string category,
+        string anchor, ref int budget, CancellationToken ct)
+    {
+        if (category == "other") return ("not-checked", null);
+        if (file is null) return ("not-in-reviewed-diff", null);
+        if (file.AddedLines.Count > budget) return ("not-checked", null);
+        budget -= file.AddedLines.Count;
+        int? match = null;
+        foreach (int line in file.AddedLines)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!file.NewLines.ContainsKey(line)) continue;
+            string candidate = Hash(key, "anchor-v1", file.Path, category, Review.SourceAnchor(file, line));
+            if (!string.Equals(candidate, anchor, StringComparison.Ordinal)) continue;
+            if (match is not null) return ("ambiguous", null);
+            match = line;
+        }
+        return match is null ? ("not-matched", null) : ("exact-match", match);
+    }
+
     public static void Record(string database, byte[] key, string repository, string scope, string revision,
         ReviewResult result, CancellationToken ct = default) => Record(database, key, repository, scope, revision, result, null, ct);
 
@@ -259,7 +280,7 @@ public static class FindingStore
                 INSERT INTO findings (id,repository,scope,anchor,category,path_hash,start_line,end_line,severity,revision,first_seen,last_seen,observations)
                 VALUES ($id,$repository,$scope,$anchor,$category,$path,$start,$end,$severity,$revision,$now,$now,1)
                 ON CONFLICT(id) DO UPDATE SET start_line=excluded.start_line,end_line=excluded.end_line,
-                    severity=excluded.severity,revision=excluded.revision,last_seen=excluded.last_seen,observations=observations+1
+                    category=excluded.category,severity=excluded.severity,revision=excluded.revision,last_seen=excluded.last_seen,observations=observations+1
                 """;
             command.Parameters.AddWithValue("$repository", repository);
             command.Parameters.AddWithValue("$scope", scope);
@@ -278,11 +299,13 @@ public static class FindingStore
         // Include all records in this exact checkout/scope, even when the file was not reviewed.
         List<HistoricalFinding> unverified = [];
         var observed = ids.Values.ToHashSet(StringComparer.Ordinal);
+        var reviewedPaths = result.ReviewedSourceFiles.ToDictionary(f => Hash(key, "path-v1", f.Path), StringComparer.Ordinal);
+        int anchorBudget = 10_000;
         using (SqliteCommand history = db.CreateCommand())
         {
             history.Transaction = tx;
             history.CommandText = """
-                SELECT id,category,severity,start_line,last_seen,observations FROM findings
+                SELECT id,category,severity,start_line,last_seen,observations,path_hash,anchor FROM findings
                 WHERE repository=$repository AND scope=$scope ORDER BY last_seen DESC,id
                 """;
             history.Parameters.AddWithValue("$repository", repository);
@@ -293,8 +316,11 @@ public static class FindingStore
                 ct.ThrowIfCancellationRequested();
                 string id = rows.GetString(0);
                 if (observed.Contains(id)) continue;
-                unverified.Add(new HistoricalFinding(id, RuleTaxonomy.StorageCategory(rows.GetString(1)),
-                    (Severity)rows.GetInt32(2), rows.GetInt32(3), rows.GetInt64(4), rows.GetInt64(5)));
+                string category = RuleTaxonomy.StorageCategory(rows.GetString(1));
+                reviewedPaths.TryGetValue(rows.GetString(6), out FileDiff? file);
+                (string status, int? line) = MatchHistoricalAnchor(key, file, category, rows.GetString(7), ref anchorBudget, ct);
+                unverified.Add(new HistoricalFinding(id, category,
+                    (Severity)rows.GetInt32(2), rows.GetInt32(3), rows.GetInt64(4), rows.GetInt64(5), status, line));
             }
         }
         ct.ThrowIfCancellationRequested();
