@@ -83,7 +83,7 @@ public static class Report
 
     public static void WriteRichConsole(ReviewResult r, IAnsiConsole console)
     {
-        var table = new Table().Border(TableBorder.Rounded);
+        Table table = new Table().Border(TableBorder.Rounded);
         table.AddColumn("[bold]Findings[/]");
         table.AddColumn("[bold]Reviewed[/]");
         table.AddColumn("[bold]Skipped[/]");
