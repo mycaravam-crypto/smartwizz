@@ -16,6 +16,40 @@ public class ReviewTests
     static List<Finding> Parse(string reply, List<string>? rejected = null) =>
         Review.Parse(reply, Files, 0.5, rejected ?? []);
 
+    [Theory]
+    [InlineData(99, false, false, true)]
+    [InlineData(11, false, false, true)]
+    [InlineData(12, false, false, true)]
+    [InlineData(99, true, false, false)]
+    [InlineData(99, false, true, false)]
+    public void Source_evidence_requires_unique_added_line(int reported, bool duplicate, bool contextOnly, bool accepted)
+    {
+        var file = new FileDiff { Path = "src/Calc.cs" };
+        file.NewLines.Add(12, "    incorrect();");
+        if (!contextOnly) file.AddedLines.Add(12);
+        if (duplicate)
+        {
+            file.NewLines.Add(13, "incorrect();");
+            file.AddedLines.Add(13);
+        }
+        var files = new Dictionary<string, FileDiff> { [file.Path] = file };
+        string reply = One(Good.Replace("\"startLine\":12", $"\"startLine\":{reported}")
+            .Replace("\"endLine\":13", "\"endLine\":null") +
+            ",\"sourceLine\":\"incorrect();\",\"suggestedFix\":\"corrected();\"");
+        var rejected = new List<string>();
+        List<Finding> findings = Review.Parse(reply, files, 0.5, rejected);
+        if (!accepted)
+        {
+            Assert.Empty(findings);
+            Assert.Single(rejected);
+            return;
+        }
+        Finding finding = Assert.Single(findings);
+        Assert.Empty(rejected);
+        Assert.Equal(12, finding.StartLine);
+        Assert.Equal(reported == 12 ? "corrected();" : null, finding.SuggestedFix);
+    }
+
     [Fact]
     public void Parses_valid_finding_inside_code_fence()
     {
