@@ -49,6 +49,37 @@ public class FindingStoreTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
+    [Fact]
+    public void Missing_observation_is_unverified_not_resolved_and_scope_isolated()
+    {
+        string directory = Directory.CreateTempSubdirectory().FullName;
+        string database = Path.Combine(directory, "history.db");
+        byte[] key = new byte[32];
+        try
+        {
+            ReviewResult initial = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", "scope", "revision", initial);
+            var absent = new ReviewResult();
+            FindingStore.Record(database, key, "repo", "scope", "revision", absent);
+            HistoricalFinding historical = Assert.Single(Assert.IsType<List<HistoricalFinding>>(absent.UnverifiedHistory));
+            Assert.Equal(initial.PersistentFindingIds["fp"], historical.Id);
+            Assert.Equal(1L, historical.Observations);
+            Assert.Equal(Severity.High, historical.LastObservedSeverity);
+            Assert.Empty(absent.Findings);
+            var unrelated = new ReviewResult();
+            FindingStore.Record(database, key, "repo", "other-scope", "revision", unrelated);
+            Assert.Empty(Assert.IsType<List<HistoricalFinding>>(unrelated.UnverifiedHistory));
+            var cached = new ReviewResult { CacheHit = true };
+            FindingStore.ReadIdentities(database, key, "repo", "scope", cached, default);
+            Assert.Null(cached.UnverifiedHistory);
+            ReviewResult rediscovered = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", "scope", "revision", rediscovered);
+            Assert.Equal(1, rediscovered.KnownFindings);
+            Assert.Empty(Assert.IsType<List<HistoricalFinding>>(rediscovered.UnverifiedHistory));
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     static ReviewResult Make(string rule, int line)
     {
         var result = new ReviewResult();
