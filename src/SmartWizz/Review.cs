@@ -36,6 +36,8 @@ public sealed class CheckCounts
 public sealed record ReviewRequestTiming(int Request, string Model, double ElapsedMilliseconds, int Files,
     int SystemCharacters, int UserCharacters, int? PromptTokens, int? CompletionTokens, int AcceptedFindings, bool StandardsOnly, int Attempts = 1, int? ReasoningTokens = null);
 
+public sealed record SeverityDecision(Severity ModelSeverity, Severity EffectiveSeverity, string[] PolicyRules);
+
 public sealed record LocalFindingState(string Lifecycle, string Observation);
 
 public sealed record HistoricalFinding(string Id, string Category, Severity LastObservedSeverity, int LastObservedLine,
@@ -67,6 +69,7 @@ public sealed class ReviewResult
     public long? CacheCreatedUnixSeconds { get; set; }
     public double? CacheLookupMilliseconds { get; set; }
     public int CachedRequests { get; set; }
+    public Dictionary<string, SeverityDecision> SeverityDecisions { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, string[]> FindingSourceRules { get; } = new(StringComparer.Ordinal);
     internal Dictionary<string, string> FindingCategories { get; } = new(StringComparer.Ordinal);
     internal Dictionary<string, string> FindingAnchors { get; } = new(StringComparer.Ordinal);
@@ -292,6 +295,15 @@ public static partial class Review
                         $"{representative.Fingerprint}:{representative.StartLine}:{representative.EndLine}")
                 }
                 : representative;
+            if (ruleset is not null)
+            {
+                (Severity effective, string[] policies) = ruleset.ApplySeverity(finding.Severity, category, rules, byPath[finding.FilePath]);
+                if (policies.Length > 0)
+                {
+                    result.SeverityDecisions.Add(finding.Fingerprint, new SeverityDecision(finding.Severity, effective, policies));
+                    finding = finding with { Severity = effective };
+                }
+            }
             result.Findings.Add(finding);
             result.FindingRequests.Add(finding.Fingerprint, origins[representative]);
             result.FindingSourceRequests.Add(finding.Fingerprint, requests);

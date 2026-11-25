@@ -11,6 +11,8 @@ public sealed class RulesetCheck
 {
     public string Id { get; set; } = "";
     public string Severity { get; set; } = "";
+    public string SeverityMode { get; set; } = "advisory";
+    public string[] Categories { get; set; } = [];
     public string[] Files { get; set; } = [];
     // Regexes matched against added lines; the check is sent only if one matches. Empty = always sent.
     public string[] Triggers { get; set; } = [];
@@ -121,6 +123,10 @@ public sealed class Ruleset
             if (Review.ParseSeverity(c.Severity) is not { } severity)
                 throw Error($"{c.Id}: invalid severity {c.Severity}");
 
+            if (c.SeverityMode is not ("advisory" or "minimum" or "fixed") || c.Categories is null ||
+                c.Categories.Any(category => !RuleTaxonomy.IsCacheable(category) || RuleTaxonomy.Canonical(category) != category))
+                throw Error($"{c.Id}: invalid severityMode or categories");
+
             var files = new List<string>();
             foreach (string entry in c.Files)
             {
@@ -151,6 +157,17 @@ public sealed class Ruleset
 
         string sha = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
         return new Ruleset(doc.Name, doc.Version, sha, checks);
+    }
+
+    internal (Severity Effective, string[] Rules) ApplySeverity(Severity model, string category, IEnumerable<string> reportedRules, FileDiff file)
+    {
+        var reported = reportedRules.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var policies = Checks.Where(c => c.Source.SeverityMode != "advisory" && c.AppliesTo(file) &&
+            (reported.Contains(c.Id) || c.Source.Categories.Contains(category, StringComparer.Ordinal))).ToList();
+        if (policies.Count == 0) return (model, []);
+        // Conflicting policies use the highest effective severity; minimum never downgrades.
+        Severity effective = policies.Max(c => c.Source.SeverityMode == "minimum" && model > c.Severity ? model : c.Severity);
+        return (effective, [.. policies.Select(c => c.Id).Order(StringComparer.Ordinal)]);
     }
 
     // Applicable checks, highest severity first; ties keep file order, so pass 1 always gets the most important ones.

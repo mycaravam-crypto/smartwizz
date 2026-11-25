@@ -49,6 +49,7 @@ public static class Report
         r.CacheLookupMilliseconds,
         r.CachedRequests,
         r.FindingSourceRules,
+        r.SeverityDecisions,
         r.PersistentFindingIds,
         r.SystemPromptCharacters,
         r.UserPromptCharacters,

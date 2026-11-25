@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "name": "Production Engineering Standard",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "fileGroups": {
     "code": [
       "*.cs",
@@ -129,6 +129,7 @@
     {
       "id": "std-secret-in-logs",
       "severity": "high",
+      "severityMode": "minimum",
       "files": [
         "@code"
       ],
@@ -474,6 +475,8 @@
     {
       "id": "std-committed-secret",
       "severity": "high",
+      "severityMode": "minimum",
+      "categories": ["hardcoded-credential"],
       "files": [
         "@code",
         "@config",
@@ -500,6 +503,8 @@
     {
       "id": "std-injection",
       "severity": "high",
+      "severityMode": "minimum",
+      "categories": ["sql-injection"],
       "files": [
         "@code"
       ],
