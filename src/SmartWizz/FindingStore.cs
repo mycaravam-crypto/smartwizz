@@ -164,7 +164,8 @@ public static class FindingStore
             DefaultTimeout = 5,
         }.ToString());
         db.Open();
-        scope = EffectiveScope(db, null, repository, scope, legacyScope, write: false);
+        if (legacyScope is not null)
+            scope = EffectiveScope(db, null, repository, scope, legacyScope, write: false);
         var entries = result.Findings.Where(f => result.FindingAnchors.ContainsKey(f.Fingerprint))
             .Select(f => (Finding: f, Anchor: Hash(key, "anchor-v1", f.FilePath,
                 Category(result, f), result.FindingAnchors[f.Fingerprint]))).ToList();
@@ -222,7 +223,8 @@ public static class FindingStore
                 """;
             schema.ExecuteNonQuery();
         }
-        scope = EffectiveScope(db, tx, repository, scope, legacyScope, write: true);
+        if (legacyScope is not null)
+            scope = EffectiveScope(db, tx, repository, scope, legacyScope, write: true);
         var entries = result.Findings.Where(f => result.FindingAnchors.ContainsKey(f.Fingerprint))
             .Select(f => (Finding: f, Anchor: Hash(key, "anchor-v1", f.FilePath,
                 Category(result, f), result.FindingAnchors[f.Fingerprint]))).ToList();
