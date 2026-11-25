@@ -239,6 +239,7 @@ public sealed record Options
     internal bool? CacheOverride { get; init; }
     internal bool Stateless { get; init; }
     internal bool InitializeHistory { get; init; }
+    internal bool InvalidateCache { get; init; }
 
     internal Options ResolveStorage(StorageConfig storage, bool ci, bool trustedConfig, bool initialized)
     {
@@ -252,6 +253,7 @@ public sealed record Options
             Remember = enabled && (remember ?? true),
             Cache = enabled && AnnotatedDiffPath is null && (cache ?? (FailOn is null)),
             InitializeHistory = enabled && (remember == true || cache == true),
+            InvalidateCache = enabled && initialized && CacheOverride == false,
         };
     }
     public string? AnnotatedDiffPath { get; init; }
