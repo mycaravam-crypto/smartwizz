@@ -256,8 +256,11 @@ public static partial class Review
         foreach ((Finding representative, int[] requests) in representatives)
         {
             Finding finding = collisions.Contains(representative.Fingerprint)
-                ? representative with { Fingerprint = Fingerprint(representative.RuleId, representative.FilePath,
-                    $"{representative.Fingerprint}:{representative.StartLine}:{representative.EndLine}") }
+                ? representative with
+                {
+                    Fingerprint = Fingerprint(representative.RuleId, representative.FilePath,
+                        $"{representative.Fingerprint}:{representative.StartLine}:{representative.EndLine}")
+                }
                 : representative;
             result.Findings.Add(finding);
             result.FindingRequests.Add(finding.Fingerprint, origins[representative]);
