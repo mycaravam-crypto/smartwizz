@@ -18,6 +18,11 @@ public class FindingStoreTests
             FindingStore.Record(database, key, "repo-a", "scope", "revision", second);
             Assert.Equal(1, second.KnownFindings);
             Assert.Equal(first.PersistentFindingIds["fp"], second.PersistentFindingIds["fp"]);
+            ReviewResult cached = Make("hardcoded-secret", 79);
+            cached.CacheHit = true;
+            FindingStore.ReadIdentities(database, key, "repo-a", "scope", cached, default);
+            Assert.Equal(second.PersistentFindingIds["fp"], cached.PersistentFindingIds["fp"]);
+            Assert.Equal(1, cached.KnownFindings);
             ReviewResult third = Make("hardcoded-secret", 79);
             FindingStore.Record(database, key, "repo-b", "scope", "revision", third);
             Assert.Equal(0, third.KnownFindings);
@@ -32,6 +37,8 @@ public class FindingStoreTests
                 using SqliteCommand query = db.CreateCommand();
                 query.CommandText = "SELECT COUNT(*) FROM findings";
                 Assert.Equal(2L, (long)query.ExecuteScalar()!);
+                query.CommandText = "SELECT SUM(observations) FROM findings";
+                Assert.Equal(3L, (long)query.ExecuteScalar()!);
             }
             // Close native SQLite handles before inspecting the file on Windows.
             string bytes = System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(database));
