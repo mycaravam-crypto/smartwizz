@@ -25,7 +25,7 @@ public static partial class RuleTaxonomy
              source.Contains("INSERT INTO ", StringComparison.OrdinalIgnoreCase) ||
              source.Contains("DELETE FROM ", StringComparison.OrdinalIgnoreCase) ||
              source.Contains("UPDATE ", StringComparison.OrdinalIgnoreCase)) &&
-            (source.Contains("$\"", StringComparison.Ordinal) || source.Contains("+", StringComparison.Ordinal)))
+            (source.Contains("$\"", StringComparison.Ordinal) || source.Contains('+')))
             return "sql-injection";
         if (category is "std-hardcoded-config" or "hardcoded-config" && CredentialAssignment().IsMatch(source))
             return "hardcoded-credential";
