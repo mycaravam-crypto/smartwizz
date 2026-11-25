@@ -32,7 +32,7 @@ public class RichConsoleTests
         Assert.Contains("Request #1: 1.25s (shared call)", rendered);
         Assert.Contains("LLM calls: 1.25s", rendered);
         Assert.DoesNotContain("SmartWizz: 1 finding", rendered);
-        Assert.All(rendered.Split('\n'), line => Assert.True(line.TrimEnd().Length <= 110));
+        Assert.All(rendered.Split('\n'), line => Assert.True(System.Text.RegularExpressions.Regex.Replace(line, @"\x1b\[[0-9;]*m", "").TrimEnd().Length <= 110));
     }
 
     [Fact]
