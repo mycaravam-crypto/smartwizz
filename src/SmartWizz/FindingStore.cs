@@ -67,7 +67,7 @@ public static class FindingStore
         string[] aliases = category switch
         {
             "sql-injection" => ["std-injection"],
-            "off-by-one" => ["index-out-of-range"],
+            "off-by-one" => ["index-out-of-range", "array-out-of-bounds"],
             "hardcoded-credential" => ["std-hardcoded-config", "hardcoded-config"],
             _ => [],
         };
