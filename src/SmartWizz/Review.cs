@@ -411,22 +411,16 @@ public static partial class Review
             string[] literals = RuleTaxonomy.CredentialLiterals(files.Values.SelectMany(file => file.NewLines.Values));
             foreach (JsonElement e in arr.EnumerateArray())
             {
-                Finding? f = Validate(e, files, minConfidence, allowed, standardsOnly, out string? reason);
+                Finding? f = Validate(e, files, minConfidence, allowed, standardsOnly, literals, out string? reason);
                 if (f is null) rejected.Add(RuleTaxonomy.Redact(reason, literals));
-                else list.Add(f with
-                {
-                    Title = RuleTaxonomy.Redact(f.Title, literals),
-                    Message = RuleTaxonomy.Redact(f.Message, literals),
-                    SuggestedFix = f.SuggestedFix is { } fix ? RuleTaxonomy.Redact(fix, literals) : null,
-                    RuleId = RuleTaxonomy.Redact(f.RuleId, literals),
-                });
+                else list.Add(f);
             }
             return list;
         }
     }
 
     static Finding? Validate(JsonElement e, IReadOnlyDictionary<string, FileDiff> files, double minConfidence,
-        HashSet<string>? standardIds, bool standardsOnly, out string reason)
+        HashSet<string>? standardIds, bool standardsOnly, string[] literals, out string reason)
     {
         reason = "";
         if (e.ValueKind != JsonValueKind.Object) return Reject(out reason, "finding is not an object");
@@ -446,7 +440,17 @@ public static partial class Review
         Severity? sev = ParseSeverity(Str("severity"));
 
         if (ruleId is null || title is null || message is null || path is null || start is null || conf is null || sev is null)
-            return Reject(out reason, "missing or invalid field");
+        {
+            List<string> fields = [];
+            if (ruleId is null) fields.Add("ruleId");
+            if (title is null) fields.Add("title");
+            if (message is null) fields.Add("message");
+            if (path is null) fields.Add("filePath");
+            if (start is null) fields.Add("startLine");
+            if (conf is null) fields.Add("confidence");
+            if (sev is null) fields.Add("severity");
+            return Reject(out reason, "missing or invalid field: " + string.Join(", ", fields));
+        }
         if (!files.TryGetValue(path, out FileDiff? file))
             return Reject(out reason, $"{path}: file not in reviewed diff");
         if (!file.AddedLines.Contains(start.Value) || !file.NewLines.TryGetValue(start.Value, out string? startText))
@@ -467,8 +471,10 @@ public static partial class Review
             ruleId = canonical;
         }
         // Optional: a malformed suggestion never costs the finding itself.
-        string? fix = e.TryGetProperty("suggestedFix", out JsonElement s) && s.ValueKind == JsonValueKind.String ? CleanCode(s.GetString()!) : null;
-        return new Finding(ruleId, sev.Value, Cap(Sanitize(title, false), 200), Cap(Sanitize(message, true), 4000), path, start.Value,
+        string? fix = e.TryGetProperty("suggestedFix", out JsonElement s) && s.ValueKind == JsonValueKind.String ? CleanCode(RuleTaxonomy.Redact(s.GetString()!, literals)) : null;
+        ruleId = RuleTaxonomy.Redact(ruleId, literals);
+        return new Finding(ruleId, sev.Value, Cap(Sanitize(RuleTaxonomy.Redact(title, literals), false), 200),
+            Cap(Sanitize(RuleTaxonomy.Redact(message, literals), true), 4000), path, start.Value,
             end == start ? null : end, conf.Value, Fingerprint(ruleId, path, startText), fix);
     }
 
