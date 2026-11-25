@@ -82,6 +82,7 @@ public sealed class Config
             : cfg.Review.ContextLines < 0 ? "review.contextLines must not be negative"
             : cfg.Review.MaxCharsPerRequest <= 0 ? "review.maxCharsPerRequest must be greater than 0"
             : cfg.Review.MinConfidence is < 0 or > 1 ? "review.minConfidence must be between 0 and 1"
+            : cfg.Review.MaxParallelRequests is < 1 or > 8 ? "review.maxParallelRequests must be between 1 and 8"
             : cfg.Review.MaxChecksPerRequest < 0 ? "review.maxChecksPerRequest must not be negative"
             : null;
         if (error is not null)
@@ -137,6 +138,8 @@ public sealed class ProviderConfig
 public sealed class ReviewConfig
 {
     public int ContextLines { get; set; } = 10;
+    // Independent batches may overlap; passes within each batch remain sequential.
+    public int MaxParallelRequests { get; set; } = 1;
     public int MaxCharsPerRequest { get; set; } = 60_000;
     public double MinConfidence { get; set; } = 0.5;
     // false = don't ask the model for suggestedFix; saves the slowest part of a local model's output.
