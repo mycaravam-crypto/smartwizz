@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -103,6 +104,7 @@ public static class Program
 
     static async Task<int> RunAsync(Options opt, CancellationToken ct)
     {
+        long started = Stopwatch.GetTimestamp();
         if (opt.Check)
         {
             // check runs inside arbitrary repos, whose ./smartwizz.json could redirect the provider and capture the API key.
@@ -139,7 +141,7 @@ public static class Program
         ReviewCheckpoint? previous = UsableCheckpoint(ReviewCheckpoint.Load(opt.StateIn, Console.Error), opt.Since);
         // No client-wide timeout: Provider and AzureDevOpsPublisher bound every request with their configured timeout.
         using HttpClient http = new() { Timeout = Timeout.InfiniteTimeSpan };
-        Provider provider = new(http, cfg.Provider, Environment.GetEnvironmentVariable("SMARTWIZZ_API_KEY"), log: Console.Error);
+        Provider provider = new(http, cfg.Provider, Environment.GetEnvironmentVariable("SMARTWIZZ_API_KEY"), log: TextWriter.Synchronized(Console.Error));
         bool plain = opt.Plain || opt.Problems || Environment.GetEnvironmentVariable("NO_COLOR") is not null ||
             Environment.GetEnvironmentVariable("CI") is not null ||
             string.Equals(Environment.GetEnvironmentVariable("TERM"), "dumb", StringComparison.OrdinalIgnoreCase);
@@ -151,6 +153,7 @@ public static class Program
         (ReviewPlan plan, ReviewResult result, ReviewCheckpoint? next) = await IncrementalReview.RunAsync(
             opt, previous, cfg.Review, provider, prompts, reviewScope, ruleset, Console.Error, ct, progress);
 
+        result.EndToEndMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         if (opt.Problems) Report.WriteProblems(result, Console.Out);
         else if (!plain && !Console.IsOutputRedirected && AnsiConsole.Profile.Capabilities.Interactive)
             Report.WriteRichConsole(result, AnsiConsole.Console);
