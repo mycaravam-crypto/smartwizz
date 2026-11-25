@@ -52,6 +52,7 @@ public static class FindingStore
     public static void Record(string database, byte[] key, string repository, string scope, string revision,
         ReviewResult result, CancellationToken ct = default)
     {
+        if (key.Length != 32) throw new ArgumentException("invalid history key", nameof(key));
         using var db = new SqliteConnection(new SqliteConnectionStringBuilder
         {
             DataSource = database, Pooling = false, DefaultTimeout = 5,
@@ -87,14 +88,14 @@ public static class FindingStore
         HashSet<string> repeated = entries.GroupBy(e => e.Anchor).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
         var ids = new Dictionary<string, string>(StringComparer.Ordinal);
         int known = 0;
-        foreach (var entry in entries)
+        foreach ((Finding finding, string sourceAnchor) in entries)
         {
             ct.ThrowIfCancellationRequested();
-            Finding f = entry.Finding;
+            Finding f = finding;
             // Ambiguous identical anchors within this run are location-specific.
-            string anchor = repeated.Contains(entry.Anchor)
-                ? Hash(key, entry.Anchor, f.StartLine.ToString(System.Globalization.CultureInfo.InvariantCulture))
-                : entry.Anchor;
+            string anchor = repeated.Contains(sourceAnchor)
+                ? Hash(key, sourceAnchor, f.StartLine.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                : sourceAnchor;
             string id = Hash(key, "finding-v1", repository, scope, anchor);
             using SqliteCommand command = db.CreateCommand();
             command.Transaction = tx;
