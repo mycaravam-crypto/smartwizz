@@ -69,7 +69,7 @@ public sealed class ReviewResult
     public long? CacheCreatedUnixSeconds { get; set; }
     public double? CacheLookupMilliseconds { get; set; }
     public int CachedRequests { get; set; }
-    public List<string> StaticFindingFingerprints { get; } = [];
+    public Dictionary<string, int[]> SourceAttributionOriginalLines { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, SeverityDecision> SeverityDecisions { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, string[]> FindingSourceRules { get; } = new(StringComparer.Ordinal);
     internal Dictionary<string, string> FindingCategories { get; } = new(StringComparer.Ordinal);
@@ -272,13 +272,23 @@ public static partial class Review
         }
         result.ReviewedFiles = totalFiles;
         result.ReviewedSourceFiles = [.. batches.SelectMany(b => b)];
-        foreach (FileDiff file in result.ReviewedSourceFiles)
+        // Structural context adjusts only accepted model findings, never creates diagnostics.
+        var attribution = new Dictionary<Finding, int>(ReferenceEqualityComparer.Instance);
+        var maps = new Dictionary<string, Dictionary<int, int>>(StringComparer.Ordinal);
+        var sourceFiles = result.ReviewedSourceFiles.ToDictionary(file => file.Path, StringComparer.Ordinal);
+        for (int i = 0; i < all.Count; i++)
         {
-            foreach (Finding finding in CSharpAnalysis.Analyze(file, ct))
-            {
-                all.Add(finding);
-                origins.Add(finding, 0);
-            }
+            ct.ThrowIfCancellationRequested();
+            Finding original = all[i];
+            if (RuleTaxonomy.Canonical(original.RuleId) is not ("off-by-one" or "index-out-of-range" or "array-out-of-bounds")) continue;
+            FileDiff file = sourceFiles[original.FilePath];
+            if (!maps.TryGetValue(file.Path, out Dictionary<int, int>? map))
+                maps.Add(file.Path, map = CSharpAnalysis.AttributionMap(file, ct));
+            Finding adjusted = CSharpAnalysis.Attribute(original, file, map);
+            if (ReferenceEquals(original, adjusted)) continue;
+            attribution.Add(adjusted, original.StartLine);
+            origins.Add(adjusted, origins[original]);
+            all[i] = adjusted;
         }
         result.RawDetections = all.Count;
         // Within a run, only equivalent categories at the same validated location merge.
@@ -289,13 +299,14 @@ public static partial class Review
             .Select(g => (Finding: g.OrderByDescending(f => f.Severity).ThenByDescending(f => f.Confidence).First(),
                 Requests: g.Select(f => origins[f]).Distinct().Order().ToArray(),
                 Rules: g.Select(f => f.RuleId).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
-                Category: g.Key.Rule)).ToList();
+                Category: g.Key.Rule,
+                OriginalLines: g.Where(attribution.ContainsKey).Select(f => attribution[f]).Distinct().Order().ToArray())).ToList();
         // Legacy fingerprint collisions can occur on identical statements in different locations.
         // Disambiguate those instances rather than silently discarding distinct defects.
         var collisions = representatives.GroupBy(f => f.Finding.Fingerprint).Where(g => g.Count() > 1)
             .Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
         result.Findings = [];
-        foreach ((Finding representative, int[] requests, string[] rules, string category) in representatives)
+        foreach ((Finding representative, int[] requests, string[] rules, string category, int[] originalLines) in representatives)
         {
             Finding finding = collisions.Contains(representative.Fingerprint)
                 ? representative with
@@ -314,9 +325,9 @@ public static partial class Review
                 }
             }
             result.Findings.Add(finding);
-            if (requests.Contains(0)) result.StaticFindingFingerprints.Add(finding.Fingerprint);
-            if (origins[representative] != 0) result.FindingRequests.Add(finding.Fingerprint, origins[representative]);
-            result.FindingSourceRequests.Add(finding.Fingerprint, [.. requests.Where(request => request != 0)]);
+            if (originalLines.Length > 0) result.SourceAttributionOriginalLines.Add(finding.Fingerprint, originalLines);
+            result.FindingRequests.Add(finding.Fingerprint, origins[representative]);
+            result.FindingSourceRequests.Add(finding.Fingerprint, requests);
             result.FindingSourceRules.Add(finding.Fingerprint, rules);
             result.FindingCategories.Add(finding.Fingerprint, category);
         }
