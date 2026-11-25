@@ -213,7 +213,9 @@ public static partial class Review
 
             async Task<List<Finding>> AskAsync(string diff, string task, List<FileDiff> sent, List<string>? standardIds, bool standardsOnly)
             {
-                string userMessage = BuildUserMessage(diff, task);
+                var references = SourceReferences(sent);
+                string userMessage = BuildUserMessage(diff, task + "\n\nAdded-line source references (file path, reference):\n" +
+                    string.Join("\n", references.Select(entry => $"{entry.Value.Path}: {entry.Key}")));
                 int id = ++request;
                 OutputSchema schema = FindingsSchema(sent.Select(f => f.Path), standardsOnly ? standardIds : null, cfg.SuggestFixes);
                 lock (progressGate)
@@ -224,7 +226,7 @@ public static partial class Review
                 long started = Stopwatch.GetTimestamp();
                 Completion reply = await provider.CompleteAsync(prompts.System, userMessage, token, schema);
                 double elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
-                List<Finding> findings = Parse(reply.Content, sent.ToDictionary(f => f.Path), cfg.MinConfidence, rejected, standardIds, standardsOnly);
+                List<Finding> findings = Parse(reply.Content, sent.ToDictionary(f => f.Path), cfg.MinConfidence, rejected, standardIds, standardsOnly, references);
                 timings.Add(new(id, reply.Model, elapsed, sent.Count, prompts.System.Length, userMessage.Length,
                     reply.PromptTokens, reply.CompletionTokens, findings.Count, standardsOnly, reply.Attempts, reply.ReasoningTokens));
                 foreach (Finding finding in findings)
@@ -369,6 +371,20 @@ public static partial class Review
 
     // Mirrors the finding shape in prompts/review-format.md. Strict mode needs every property listed as required,
     // so optional ones allow null. ruleIds = null: free string (bug categories; std-* IDs are checked in Validate).
+    internal static Dictionary<string, (string Path, int Line)> SourceReferences(IEnumerable<FileDiff> files)
+    {
+        var references = new Dictionary<string, (string Path, int Line)>(StringComparer.Ordinal);
+        int ordinal = 0;
+        foreach (FileDiff file in files)
+        {
+            ordinal++;
+            foreach (int line in file.AddedLines.Order())
+                if (file.NewLines.ContainsKey(line))
+                    references.Add(FormattableString.Invariant($"F{ordinal}-L{line}"), (file.Path, line));
+        }
+        return references;
+    }
+
     public static OutputSchema FindingsSchema(IEnumerable<string> paths, IEnumerable<string>? ruleIds, bool suggestFixes = true)
     {
         static JsonArray Strings(IEnumerable<string> values) => [.. values.Select(v => (JsonNode)JsonValue.Create(v))];
@@ -384,12 +400,12 @@ public static partial class Review
                 ["message"] = new JsonObject { ["type"] = "string" },
                 ["filePath"] = new JsonObject { ["type"] = "string", ["enum"] = Strings(paths) },
                 ["startLine"] = new JsonObject { ["type"] = "integer" },
-                ["sourceLine"] = new JsonObject { ["type"] = Strings(["string", "null"]) },
+                ["sourceRef"] = new JsonObject { ["type"] = "string" },
                 ["endLine"] = new JsonObject { ["type"] = Strings(["integer", "null"]) },
                 ["confidence"] = new JsonObject { ["type"] = "number" },
                 ["suggestedFix"] = new JsonObject { ["type"] = Strings(["string", "null"]) },
             },
-            ["required"] = Strings(["ruleId", "severity", "title", "message", "filePath", "startLine", "sourceLine", "endLine", "confidence", "suggestedFix"]),
+            ["required"] = Strings(["ruleId", "severity", "title", "message", "filePath", "startLine", "sourceRef", "endLine", "confidence", "suggestedFix"]),
             ["additionalProperties"] = false,
         };
         if (!suggestFixes)
@@ -408,7 +424,8 @@ public static partial class Review
 
     public static List<Finding> Parse(
         string reply, IReadOnlyDictionary<string, FileDiff> files, double minConfidence, List<string> rejected,
-        IEnumerable<string>? standardIds = null, bool standardsOnly = false)
+        IEnumerable<string>? standardIds = null, bool standardsOnly = false,
+        IReadOnlyDictionary<string, (string Path, int Line)>? references = null)
     {
         // Tolerates prose or ```json fences around the object.
         int start = reply.IndexOf('{'), end = reply.LastIndexOf('}');
@@ -431,7 +448,7 @@ public static partial class Review
             string[] literals = RuleTaxonomy.CredentialLiterals(files.Values.SelectMany(file => file.NewLines.Values));
             foreach (JsonElement e in arr.EnumerateArray())
             {
-                Finding? f = Validate(e, files, minConfidence, allowed, standardsOnly, literals, out string? reason);
+                Finding? f = Validate(e, files, minConfidence, allowed, standardsOnly, literals, references, out string? reason);
                 if (f is null) rejected.Add(RuleTaxonomy.Redact(reason, literals));
                 else list.Add(f);
             }
@@ -440,7 +457,7 @@ public static partial class Review
     }
 
     static Finding? Validate(JsonElement e, IReadOnlyDictionary<string, FileDiff> files, double minConfidence,
-        HashSet<string>? standardIds, bool standardsOnly, string[] literals, out string reason)
+        HashSet<string>? standardIds, bool standardsOnly, string[] literals, IReadOnlyDictionary<string, (string Path, int Line)>? references, out string reason)
     {
         reason = "";
         if (e.ValueKind != JsonValueKind.Object) return Reject(out reason, "finding is not an object");
@@ -477,7 +494,21 @@ public static partial class Review
         // in the same reviewed file; never guess an offset or match against context-only lines.
         bool relocated = false;
         string? evidence = Str("sourceLine");
-        if (evidence is not null)
+        if (references is not null)
+        {
+            string? sourceRef = Str("sourceRef");
+            if (sourceRef is null || !references.TryGetValue(sourceRef, out var location))
+                return Reject(out reason, $"{path}:{start}: source-reference-invalid");
+            if (!string.Equals(location.Path, path, StringComparison.Ordinal))
+                return Reject(out reason, $"{path}:{start}: source-reference-file-mismatch");
+            if (location.Line != start.Value)
+            {
+                relocated = true;
+                start = location.Line;
+                end = null;
+            }
+        }
+        else if (evidence is not null)
         {
             string[] quoted = evidence.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
             if (evidence.Length > 4096 || quoted.Length > 8 || quoted.Any(string.IsNullOrWhiteSpace))
