@@ -43,6 +43,10 @@ public sealed class ReviewResult
     public double? EndToEndMilliseconds { get; set; }
     public double? ReviewElapsedMilliseconds { get; set; }
     public List<ReviewRequestTiming> RequestTimings { get; } = [];
+    public int RawDetections { get; set; }
+    public int DuplicateDetections => RawDetections - Findings.Count;
+    public int? KnownFindings { get; set; }
+    public Dictionary<string, int[]> FindingSourceRequests { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, int> FindingRequests { get; } = new(StringComparer.Ordinal);
     // Models that actually answered, in first-use order; more than one means a fallback was used.
     public List<string> Models { get; } = [];
@@ -236,9 +240,27 @@ public static partial class Review
             }
         }
         result.ReviewedFiles = totalFiles;
-        result.Findings = Dedupe(all);
-        foreach (Finding finding in result.Findings)
-            result.FindingRequests.Add(finding.Fingerprint, origins[finding]);
+        result.RawDetections = all.Count;
+        // Within a run, only equivalent categories at the same validated location merge.
+        // Keep legacy fingerprints on representatives for checkpoint compatibility.
+        var groups = all.GroupBy(f => (f.FilePath, f.StartLine, End: f.EndLine ?? f.StartLine, Rule: RuleTaxonomy.Canonical(f.RuleId))).ToList();
+        var representatives = groups.Select(g => g.OrderByDescending(f => f.Severity).ThenByDescending(f => f.Confidence).First()).ToList();
+        // Legacy fingerprint collisions can occur on identical statements in different locations.
+        // Disambiguate those instances rather than silently discarding distinct defects.
+        var collisions = representatives.GroupBy(f => f.Fingerprint).Where(g => g.Count() > 1)
+            .Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
+        result.Findings = [];
+        foreach (Finding representative in representatives)
+        {
+            Finding finding = collisions.Contains(representative.Fingerprint)
+                ? representative with { Fingerprint = Fingerprint(representative.RuleId, representative.FilePath,
+                    $"{representative.Fingerprint}:{representative.StartLine}:{representative.EndLine}") }
+                : representative;
+            result.Findings.Add(finding);
+            result.FindingRequests.Add(finding.Fingerprint, origins[representative]);
+            result.FindingSourceRequests.Add(finding.Fingerprint, [.. groups.First(g => g.Contains(representative)).Select(f => origins[f]).Distinct().Order()]);
+        }
+        result.Findings = [.. result.Findings.OrderByDescending(f => f.Severity).ThenBy(f => f.FilePath, StringComparer.Ordinal).ThenBy(f => f.StartLine)];
         foreach (Finding f in result.Findings)
             if (result.Checks?.TryGetValue(f.RuleId, out CheckCounts? counts) == true) counts.Findings++;
         if (completeUsage)
