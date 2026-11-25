@@ -193,6 +193,67 @@ public static class FindingStore
         // A cached snapshot is not a new inspection; do not infer missing findings from it.
     }
 
+    // Explicit human attestation, not an automated semantic verification.
+    public static async Task ResolveAttestedAsync(Options opt, string scope, string legacyScope, string id, CancellationToken ct)
+    {
+        if (Environment.GetEnvironmentVariable("CI") is not null || !opt.Remember)
+            throw new SmartWizzException(FailureKind.Usage, "resolution requires enabled local history outside CI");
+        try
+        {
+            string directory = await HistoryKey.SafeDirectoryAsync(opt.Repo, ct);
+            byte[] key = HistoryKey.Load(directory, false) ??
+                throw new SmartWizzException(FailureKind.Configuration, "existing history key required");
+            try
+            {
+                string root = await GitDiff.RepositoryRootAsync(opt.Repo, ct);
+                string repository = Hash(key, "repository-v1", OperatingSystem.IsWindows() ? root.ToUpperInvariant() : root);
+                string selection = opt.Staged ? "staged" : "working";
+                string revision = await GitDiff.ResolveShaAsync(opt.Repo, "HEAD", ct);
+                ResolveAttested(Path.Combine(directory, "findings-v1.db"), repository, Hash(key, scope, selection),
+                    Hash(key, legacyScope, selection), id, revision, ct);
+            }
+            finally { CryptographicOperations.ZeroMemory(key); }
+        }
+        catch (Exception e) when (e is SqliteException or IOException or UnauthorizedAccessException or CryptographicException or ArgumentException)
+        {
+            throw new SmartWizzException(FailureKind.Configuration, "finding resolution storage unavailable");
+        }
+    }
+
+    internal static void ResolveAttested(string database, string repository, string scope, string? legacyScope,
+        string id, string revision, CancellationToken ct)
+    {
+        if (id.Length != 64 || !id.All(Uri.IsHexDigit))
+            throw new SmartWizzException(FailureKind.Usage, "resolution requires the full 64-character finding ID from JSON");
+        using var db = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = database, Mode = SqliteOpenMode.ReadWrite, Pooling = false, DefaultTimeout = 5,
+        }.ToString());
+        db.Open();
+        using SqliteTransaction tx = db.BeginTransaction();
+        EnsureLifecycle(db, tx);
+        scope = EffectiveScope(db, tx, repository, scope, legacyScope, write: true);
+        using SqliteCommand command = db.CreateCommand();
+        command.Transaction = tx;
+        command.Parameters.AddWithValue("$id", id.ToLowerInvariant());
+        command.Parameters.AddWithValue("$repository", repository);
+        command.Parameters.AddWithValue("$scope", scope);
+        command.CommandText = "SELECT 1 FROM findings WHERE id=$id AND repository=$repository AND scope=$scope";
+        if (command.ExecuteScalar() is null)
+            throw new SmartWizzException(FailureKind.Usage, "finding not found in current history scope");
+        command.CommandText = "SELECT state FROM finding_lifecycle WHERE id=$id";
+        if (command.ExecuteScalar() is string state && state == "resolved")
+            throw new SmartWizzException(FailureKind.Usage, "finding already resolved");
+        command.CommandText = "INSERT INTO finding_lifecycle(id,state) VALUES ($id,'resolved') ON CONFLICT(id) DO UPDATE SET state='resolved'";
+        command.ExecuteNonQuery();
+        command.CommandText = "INSERT INTO finding_lifecycle_audit(id,event,revision,recorded_at) VALUES ($id,'human-attested-resolution',$revision,$now)";
+        command.Parameters.AddWithValue("$revision", revision);
+        command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        command.ExecuteNonQuery();
+        ct.ThrowIfCancellationRequested();
+        tx.Commit();
+    }
+
     // Separate lifecycle from observation. Existing rows without a state are open.
     // Resolution is not inferred here; a future explicit verifier may record it.
     static void EnsureLifecycle(SqliteConnection db, SqliteTransaction tx)
@@ -203,6 +264,13 @@ public static class FindingStore
             CREATE TABLE IF NOT EXISTS finding_lifecycle (
                 id TEXT PRIMARY KEY,
                 state TEXT NOT NULL CHECK(state IN ('resolved','regressed'))
+            );
+            CREATE TABLE IF NOT EXISTS finding_lifecycle_audit (
+                sequence INTEGER PRIMARY KEY,
+                id TEXT NOT NULL,
+                event TEXT NOT NULL CHECK(event IN ('human-attested-resolution','rediscovered')),
+                revision TEXT NOT NULL,
+                recorded_at INTEGER NOT NULL
             );
             """;
         command.ExecuteNonQuery();
@@ -321,6 +389,11 @@ public static class FindingStore
             {
                 command.CommandText = "INSERT INTO finding_lifecycle(id,state) VALUES ($id,'regressed') ON CONFLICT(id) DO UPDATE SET state='regressed'";
                 command.ExecuteNonQuery();
+                if (prior == "resolved")
+                {
+                    command.CommandText = "INSERT INTO finding_lifecycle_audit(id,event,revision,recorded_at) VALUES ($id,'rediscovered',$revision,$now)";
+                    command.ExecuteNonQuery();
+                }
             }
             ids.Add(f.Fingerprint, id);
         }
