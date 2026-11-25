@@ -371,6 +371,9 @@ public static partial class Review
 
     // Mirrors the finding shape in prompts/review-format.md. Strict mode needs every property listed as required,
     // so optional ones allow null. ruleIds = null: free string (bug categories; std-* IDs are checked in Validate).
+    [GeneratedRegex(@"^F[1-9][0-9]*-L[1-9][0-9]*$", RegexOptions.CultureInvariant)]
+    private static partial Regex SourceReferenceFormat();
+
     internal static Dictionary<string, (string Path, int Line)> SourceReferences(IEnumerable<FileDiff> files)
     {
         var references = new Dictionary<string, (string Path, int Line)>(StringComparer.Ordinal);
@@ -496,9 +499,13 @@ public static partial class Review
         string? evidence = Str("sourceLine");
         if (references is not null)
         {
+            if (!e.TryGetProperty("sourceRef", out JsonElement referenceValue) || referenceValue.ValueKind == JsonValueKind.Null)
+                return Reject(out reason, $"{path}:{start}: source-reference-missing");
             string? sourceRef = Str("sourceRef");
-            if (sourceRef is null || !references.TryGetValue(sourceRef, out (string Path, int Line) location))
-                return Reject(out reason, $"{path}:{start}: source-reference-invalid");
+            if (sourceRef is null || !SourceReferenceFormat().IsMatch(sourceRef))
+                return Reject(out reason, $"{path}:{start}: source-reference-malformed");
+            if (!references.TryGetValue(sourceRef, out (string Path, int Line) location))
+                return Reject(out reason, $"{path}:{start}: source-reference-unknown");
             if (!string.Equals(location.Path, path, StringComparison.Ordinal))
                 return Reject(out reason, $"{path}:{start}: source-reference-file-mismatch");
             if (location.Line != start.Value)
