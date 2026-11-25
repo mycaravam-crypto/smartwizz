@@ -15,7 +15,7 @@ public static class FindingStore
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new string?[]
         { "history-policy-v2", rulesetSha, guidelines }))));
 
-    public static async Task TryRecordAsync(Options opt, string scope, ReviewResult result, TextWriter log, CancellationToken ct, string? legacyScope = null)
+    public static async Task TryRecordAsync(Options opt, string scope, ReviewResult result, TextWriter log, string? legacyScope, CancellationToken ct)
     {
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         try
@@ -38,13 +38,13 @@ public static class FindingStore
                 string? legacy = legacyScope is null ? null : Hash(key, legacyScope, selection);
                 if (result.CacheHit)
                 {
-                    ReadIdentities(database, key, repository, scoped, result, ct, legacy);
+                    ReadIdentities(database, key, repository, scoped, result, legacy, ct);
                 }
                 else
                 {
                     string revision = await GitDiff.ResolveShaAsync(opt.Repo, opt.Check || opt.Staged ? "HEAD" : opt.Head, ct);
                     ct.ThrowIfCancellationRequested();
-                    Record(database, key, repository, scoped, revision, result, ct, legacy);
+                    Record(database, key, repository, scoped, revision, result, legacy, ct);
                 }
             }
             finally { CryptographicOperations.ZeroMemory(key); }
@@ -152,7 +152,10 @@ public static class FindingStore
     }
 
     internal static void ReadIdentities(string database, byte[] key, string repository, string scope,
-        ReviewResult result, CancellationToken ct, string? legacyScope = null)
+        ReviewResult result, CancellationToken ct) => ReadIdentities(database, key, repository, scope, result, null, ct);
+
+    internal static void ReadIdentities(string database, byte[] key, string repository, string scope,
+        ReviewResult result, string? legacyScope, CancellationToken ct)
     {
         if (key.Length != 32) throw new ArgumentException("invalid history key", nameof(key));
         if (!File.Exists(database)) return;
@@ -189,7 +192,10 @@ public static class FindingStore
     }
 
     public static void Record(string database, byte[] key, string repository, string scope, string revision,
-        ReviewResult result, CancellationToken ct = default, string? legacyScope = null)
+        ReviewResult result, CancellationToken ct = default) => Record(database, key, repository, scope, revision, result, null, ct);
+
+    public static void Record(string database, byte[] key, string repository, string scope, string revision,
+        ReviewResult result, string? legacyScope, CancellationToken ct = default)
     {
         if (key.Length != 32) throw new ArgumentException("invalid history key", nameof(key));
         using var db = new SqliteConnection(new SqliteConnectionStringBuilder
