@@ -408,11 +408,18 @@ public static partial class Review
 
             HashSet<string>? allowed = standardIds is null ? null : new(standardIds, StringComparer.OrdinalIgnoreCase);
             var list = new List<Finding>();
+            string[] literals = RuleTaxonomy.CredentialLiterals(files.Values.SelectMany(file => file.NewLines.Values));
             foreach (JsonElement e in arr.EnumerateArray())
             {
                 Finding? f = Validate(e, files, minConfidence, allowed, standardsOnly, out string? reason);
-                if (f is null) rejected.Add(reason);
-                else list.Add(f);
+                if (f is null) rejected.Add(RuleTaxonomy.Redact(reason, literals));
+                else list.Add(f with
+                {
+                    Title = RuleTaxonomy.Redact(f.Title, literals),
+                    Message = RuleTaxonomy.Redact(f.Message, literals),
+                    SuggestedFix = f.SuggestedFix is { } fix ? RuleTaxonomy.Redact(fix, literals) : null,
+                    RuleId = RuleTaxonomy.Redact(f.RuleId, literals),
+                });
             }
             return list;
         }
