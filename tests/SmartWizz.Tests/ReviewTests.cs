@@ -87,6 +87,42 @@ public class ReviewTests
         }
     }
 
+    [Theory]
+    [InlineData("F1-L12", 12, true)]
+    [InlineData("F1-L12", 99, true)]
+    [InlineData("F1-L11", 11, false)]
+    [InlineData("F1-L99", 12, false)]
+    [InlineData("F2-L12", 12, false)]
+    [InlineData("", 12, false)]
+    public void Source_reference_must_belong_to_added_line_in_reported_file(string reference, int reported, bool accepted)
+    {
+        var file = new FileDiff { Path = "src/Calc.cs" };
+        file.NewLines.Add(11, "context();");
+        file.NewLines.Add(12, "incorrect();");
+        file.AddedLines.Add(12);
+        var other = new FileDiff { Path = "src/Other.cs" };
+        other.NewLines.Add(12, "other();");
+        other.AddedLines.Add(12);
+        var files = new Dictionary<string, FileDiff> { [file.Path] = file, [other.Path] = other };
+        var references = Review.SourceReferences([file, other]);
+        string reply = One(Good.Replace("\"startLine\":12", $"\"startLine\":{reported}")
+            .Replace("\"endLine\":13", "\"endLine\":null") +
+            ",\"sourceRef\":" + System.Text.Json.JsonSerializer.Serialize(reference) +
+            ",\"suggestedFix\":\"corrected();\"");
+        var rejected = new List<string>();
+        List<Finding> findings = Review.Parse(reply, files, 0.5, rejected, references: references);
+        if (!accepted)
+        {
+            Assert.Empty(findings);
+            Assert.Single(rejected);
+            return;
+        }
+        Finding finding = Assert.Single(findings);
+        Assert.Equal(12, finding.StartLine);
+        Assert.Equal(reported == 12 ? "corrected();" : null, finding.SuggestedFix);
+        Assert.Empty(rejected);
+    }
+
     [Fact]
     public void Parses_valid_finding_inside_code_fence()
     {
