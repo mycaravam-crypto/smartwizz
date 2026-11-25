@@ -148,7 +148,15 @@ public class ReviewTests
 
         Assert.Single(stub.Requests);
         Assert.Equal(1, result.ReviewedFiles);
-        Assert.Single(result.Findings);
+        Finding finding = Assert.Single(result.Findings);
+        ReviewRequestTiming timing = Assert.Single(result.RequestTimings);
+        Assert.Equal(1, timing.Request);
+        Assert.Equal("m", timing.Model);
+        Assert.Equal(1, timing.Files);
+        Assert.Equal(1, timing.AcceptedFindings);
+        Assert.True(timing.ElapsedMilliseconds >= 0);
+        Assert.True(result.ReviewElapsedMilliseconds >= timing.ElapsedMilliseconds);
+        Assert.Equal(timing.Request, result.FindingRequests[finding.Fingerprint]);
         Assert.Equal(["deleted", "binary", "excluded"], result.SkippedFiles.Select(s => s.Reason));
         Assert.Contains("BEGIN-DIFF-", stub.Requests[0].Body);
         Assert.Contains("- web/package-lock.json\\n", stub.Requests[0].Body); // listed for context (JSON-escaped newline)...
