@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -31,9 +32,16 @@ public sealed class CheckCounts
     public int Findings { get; set; }
 }
 
+// A logical completion includes retries, backoff and fallback attempts; not server-only inference time.
+public sealed record ReviewRequestTiming(int Request, string Model, double ElapsedMilliseconds, int Files,
+    int SystemCharacters, int UserCharacters, int? PromptTokens, int? CompletionTokens, int AcceptedFindings, bool StandardsOnly);
+
 public sealed class ReviewResult
 {
     public int ReviewedFiles { get; set; }
+    public double? ReviewElapsedMilliseconds { get; set; }
+    public List<ReviewRequestTiming> RequestTimings { get; } = [];
+    public Dictionary<string, int> FindingRequests { get; } = new(StringComparer.Ordinal);
     // Models that actually answered, in first-use order; more than one means a fallback was used.
     public List<string> Models { get; } = [];
     public List<Finding> Findings { get; set; } = [];
@@ -61,6 +69,8 @@ public static partial class Review
     public static async Task<ReviewResult> RunAsync(
         List<FileDiff> files, ReviewConfig cfg, Provider provider, ReviewPrompts prompts, CancellationToken ct, Ruleset? ruleset = null, IProgress<ReviewProgress>? progress = null)
     {
+        long reviewStarted = Stopwatch.GetTimestamp();
+        var origins = new Dictionary<Finding, int>(ReferenceEqualityComparer.Instance);
         var result = new ReviewResult
         {
             RulesetName = ruleset?.Name,
@@ -151,7 +161,9 @@ public static partial class Review
                 progress?.Report(new ReviewProgress("Reviewing", result.Requests - 1, totalRequests, result.ReviewedFiles, totalFiles, true));
                 // A standards-only pass may only use the IDs it was sent; elsewhere ruleId stays free (bug categories).
                 OutputSchema schema = FindingsSchema(sent.Select(f => f.Path), standardsOnly ? standardIds : null, cfg.SuggestFixes);
+                long requestStarted = Stopwatch.GetTimestamp();
                 Completion reply = await provider.CompleteAsync(prompts.System, userMessage, ct, schema);
+                double elapsed = Stopwatch.GetElapsedTime(requestStarted).TotalMilliseconds;
                 if (reply.PromptTokens is { } inputTokens && reply.CompletionTokens is { } outputTokens)
                 {
                     promptTokens += inputTokens;
@@ -161,11 +173,16 @@ public static partial class Review
                 if (!result.Models.Contains(reply.Model)) result.Models.Add(reply.Model);
                 List<Finding> findings = Parse(reply.Content, sent.ToDictionary(f => f.Path), cfg.MinConfidence, result.Rejected, standardIds, standardsOnly);
                 progress?.Report(new ReviewProgress("Reviewing", result.Requests, totalRequests, result.ReviewedFiles, totalFiles));
+                result.RequestTimings.Add(new(result.Requests, reply.Model, elapsed, sent.Count,
+                    prompts.System.Length, userMessage.Length, reply.PromptTokens, reply.CompletionTokens, findings.Count, standardsOnly));
+                foreach (Finding finding in findings) origins.Add(finding, result.Requests);
                 return findings;
             }
         }
 
         result.Findings = Dedupe(all);
+        foreach (Finding finding in result.Findings)
+            result.FindingRequests.Add(finding.Fingerprint, origins[finding]);
         foreach (Finding f in result.Findings)
             if (result.Checks?.TryGetValue(f.RuleId, out CheckCounts? counts) == true) counts.Findings++;
         if (completeUsage)
@@ -173,6 +190,7 @@ public static partial class Review
             result.PromptTokens = promptTokens;
             result.CompletionTokens = completionTokens;
         }
+        result.ReviewElapsedMilliseconds = Stopwatch.GetElapsedTime(reviewStarted).TotalMilliseconds;
         return result;
     }
 
