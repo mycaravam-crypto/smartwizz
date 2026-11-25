@@ -78,13 +78,15 @@ public sealed class Ruleset
     public string Version { get; }
     public string Sha256 { get; }
     public IReadOnlyList<Check> Checks { get; }
+    public IReadOnlyList<UncheckedRef> NotChecked { get; }
 
-    Ruleset(string name, string version, string sha256, IReadOnlyList<Check> checks)
+    Ruleset(string name, string version, string sha256, IReadOnlyList<Check> checks, IReadOnlyList<UncheckedRef> notChecked)
     {
         Name = name;
         Version = version;
         Sha256 = sha256;
         Checks = checks;
+        NotChecked = notChecked;
     }
 
     public static Ruleset Load(string path) => Parse(File.ReadAllText(path));
@@ -156,7 +158,7 @@ public sealed class Ruleset
             throw Error("every notChecked entry needs a ref and a reason");
 
         string sha = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
-        return new Ruleset(doc.Name, doc.Version, sha, checks);
+        return new Ruleset(doc.Name, doc.Version, sha, checks, doc.NotChecked);
     }
 
     internal (Severity Effective, string[] Rules) ApplySeverity(Severity model, string category, IEnumerable<string> reportedRules, FileDiff file)
