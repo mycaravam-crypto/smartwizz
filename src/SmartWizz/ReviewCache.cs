@@ -83,6 +83,7 @@ internal sealed class ReviewCache(string database, byte[] key, string cacheKey) 
             ReviewedFiles = snapshot.Reviewed,
             CachedRequests = snapshot.Requests,
             CacheHit = true,
+            CacheCreatedUnixSeconds = created,
             RawDetections = snapshot.Detections,
             MaxParallelRequests = cfg.MaxParallelRequests,
             RulesetName = ruleset?.Name,
@@ -105,12 +106,23 @@ internal sealed class ReviewCache(string database, byte[] key, string cacheKey) 
             if (result.FindingAnchors.ContainsKey(fingerprint)) return null;
             string category = RuleTaxonomy.Canonical(item.Rule, line);
             result.Findings.Add(new Finding(item.Rule, item.Severity, category,
-                "Cached finding metadata from an earlier successful inspection; rerun without --cache for details.",
+                "Cached finding metadata from an earlier successful inspection; rerun with --no-cache for details.",
                 file.Path, item.Start, item.End, item.Confidence, fingerprint));
             result.FindingAnchors.Add(fingerprint, Review.SourceAnchor(file, item.Start));
             result.FindingCategories.Add(fingerprint, category);
         }
         return result;
+    }
+
+    public void Invalidate(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (!File.Exists(database)) return;
+        using SqliteConnection db = Open();
+        using SqliteCommand command = db.CreateCommand();
+        command.CommandText = "DELETE FROM review_cache WHERE cache_key=$key";
+        command.Parameters.AddWithValue("$key", cacheKey);
+        command.ExecuteNonQuery();
     }
 
     public void Write(List<FileDiff> files, ReviewResult result, string model, CancellationToken ct)
