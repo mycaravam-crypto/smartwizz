@@ -8,11 +8,12 @@ namespace SmartWizz;
 public static class FindingStore
 {
     // Store only explicit parameters. Never serialize Finding or ReviewResult into SQLite.
-    static string Hash(byte[] key, params string[] parts) =>
+    internal static string Hash(byte[] key, params string[] parts) =>
         Convert.ToHexStringLower(HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(parts))));
 
     public static async Task TryRecordAsync(Options opt, string scope, ReviewResult result, TextWriter log, CancellationToken ct)
     {
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
             string? encoded = Environment.GetEnvironmentVariable("SMARTWIZZ_HISTORY_KEY");
@@ -46,6 +47,47 @@ public static class FindingStore
         {
             // Do not echo database errors or potentially sensitive paths or data.
             log.WriteLine("warning: finding history unavailable; review results are unaffected");
+        }
+        finally { result.HistoryElapsedMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds; }
+    }
+
+    static string Category(ReviewResult result, Finding finding) =>
+        result.FindingCategories.TryGetValue(finding.Fingerprint, out string? category)
+            ? category : RuleTaxonomy.Canonical(finding.RuleId);
+
+    static void MergeLegacyAliases(SqliteConnection db, SqliteTransaction tx, byte[] key, string repository,
+        string scope, Finding finding, string source, string category, string id, string anchor)
+    {
+        string[] aliases = category switch
+        {
+            "sql-injection" => ["std-injection"],
+            "hardcoded-credential" => ["std-hardcoded-config", "hardcoded-config"],
+            _ => [],
+        };
+        foreach (string alias in aliases)
+        {
+            // Do not reinterpret an unrelated broad standard check without evidence.
+            string[] lines = source.Split('\n');
+            string line = lines[finding.StartLine == 1 ? 0 : Math.Min(1, lines.Length - 1)];
+            if (RuleTaxonomy.Canonical(alias, line) != category) continue;
+            string oldAnchor = Hash(key, "anchor-v1", finding.FilePath, alias, source);
+            string oldId = Hash(key, "finding-v1", repository, scope, oldAnchor);
+            using SqliteCommand command = db.CreateCommand();
+            command.Transaction = tx;
+            command.CommandText = """
+                INSERT INTO findings (id,repository,scope,anchor,category,path_hash,start_line,end_line,severity,revision,first_seen,last_seen,observations)
+                SELECT $id,repository,scope,$anchor,$category,path_hash,start_line,end_line,severity,revision,first_seen,last_seen,observations
+                FROM findings WHERE id=$old AND start_line=$line
+                ON CONFLICT(id) DO UPDATE SET observations=findings.observations+excluded.observations,
+                    first_seen=min(findings.first_seen,excluded.first_seen),last_seen=max(findings.last_seen,excluded.last_seen);
+                DELETE FROM findings WHERE id=$old AND start_line=$line;
+                """;
+            command.Parameters.AddWithValue("$id", id);
+            command.Parameters.AddWithValue("$anchor", anchor);
+            command.Parameters.AddWithValue("$category", RuleTaxonomy.StorageCategory(category));
+            command.Parameters.AddWithValue("$old", oldId);
+            command.Parameters.AddWithValue("$line", finding.StartLine);
+            command.ExecuteNonQuery();
         }
     }
 
@@ -86,7 +128,7 @@ public static class FindingStore
         }
         var entries = result.Findings.Where(f => result.FindingAnchors.ContainsKey(f.Fingerprint))
             .Select(f => (Finding: f, Anchor: Hash(key, "anchor-v1", f.FilePath,
-                RuleTaxonomy.Canonical(f.RuleId), result.FindingAnchors[f.Fingerprint]))).ToList();
+                Category(result, f), result.FindingAnchors[f.Fingerprint]))).ToList();
         var repeated = entries.GroupBy(e => e.Anchor).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
         var ids = new Dictionary<string, string>(StringComparer.Ordinal);
         int known = 0;
@@ -99,6 +141,10 @@ public static class FindingStore
                 ? Hash(key, sourceAnchor, f.StartLine.ToString(System.Globalization.CultureInfo.InvariantCulture))
                 : sourceAnchor;
             string id = Hash(key, "finding-v1", repository, scope, anchor);
+            // Migrate only proven aliases at the same source anchor and location.
+            if (!repeated.Contains(sourceAnchor))
+                MergeLegacyAliases(db, tx, key, repository, scope, f, result.FindingAnchors[f.Fingerprint],
+                    Category(result, f), id, anchor);
             using SqliteCommand command = db.CreateCommand();
             command.Transaction = tx;
             command.CommandText = "SELECT observations FROM findings WHERE id = $id";
@@ -113,7 +159,7 @@ public static class FindingStore
             command.Parameters.AddWithValue("$repository", repository);
             command.Parameters.AddWithValue("$scope", scope);
             command.Parameters.AddWithValue("$anchor", anchor);
-            command.Parameters.AddWithValue("$category", RuleTaxonomy.StorageCategory(f.RuleId));
+            command.Parameters.AddWithValue("$category", RuleTaxonomy.StorageCategory(Category(result, f)));
             command.Parameters.AddWithValue("$path", Hash(key, "path-v1", f.FilePath));
             command.Parameters.AddWithValue("$start", f.StartLine);
             command.Parameters.AddWithValue("$end", f.EndLine ?? f.StartLine);
