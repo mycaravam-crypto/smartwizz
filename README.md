@@ -411,6 +411,16 @@ Run `smartwizz check --remember` to record metadata in LocalApplicationData/smar
 
 The model may quote the exact added source line in its response. SmartWizz checks a unique same-file added-line match before relocating a finding, rejects ambiguous or unmatched evidence, and discards the suggested fix and end-line range when relocating. Older responses without source evidence retain line-number validation. Source evidence is not stored in the history or cache.
 
+### Explicit finding resolution (local history)
+
+After independently verifying a correction, export a fresh report with `smartwizz check --no-cache --json review.json`. Obtain the full 64-character persistent finding ID from the current or historical finding metadata in the JSON report, then use:
+
+```sh
+smartwizz check --resolve-id "$FINDING_ID" --confirm-resolved
+```
+
+The operation records a human attestation, not automated proof of correction. It requires enabled local history outside CI and the matching checkout, review mode and policy scope. For staged history, also pass `--staged`. It does not run the provider, modify source code or change current-finding quality gates. Unknown IDs, shortened IDs and duplicate resolutions are rejected. Resolution and rediscovery events are recorded transactionally with the finding ID, HEAD revision and UTC timestamp. The local database audit is not tamper-evident and HEAD does not identify uncommitted working-tree contents. Run a fresh review with `--no-cache` after resolution; old cached metadata may still contain the historical detection. A fresh accepted detection of the same resolved identity becomes regressed. Missing detections never imply resolution.
+
 ### Optional exact-input local review cache
 
 ```bash
