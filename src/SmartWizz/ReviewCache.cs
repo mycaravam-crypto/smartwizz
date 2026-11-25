@@ -86,6 +86,7 @@ internal sealed class ReviewCache(string database, byte[] key, string cacheKey) 
             CacheCreatedUnixSeconds = created,
             RawDetections = snapshot.Detections,
             MaxParallelRequests = cfg.MaxParallelRequests,
+            ActiveRuleset = ruleset,
             RulesetName = ruleset?.Name,
             RulesetVersion = ruleset?.Version,
             RulesetSha256 = ruleset?.Sha256,
@@ -94,7 +95,7 @@ internal sealed class ReviewCache(string database, byte[] key, string cacheKey) 
         foreach (Item item in snapshot.Items)
         {
             ct.ThrowIfCancellationRequested();
-            if (item.File < 0 || item.File >= files.Count || !RuleTaxonomy.IsCacheable(item.Rule) ||
+            if (item.File < 0 || item.File >= files.Count || !(RuleTaxonomy.IsCacheable(item.Rule) || ruleset?.ContainsRule(item.Rule) == true) ||
                 !Enum.IsDefined(item.Severity) || !double.IsFinite(item.Confidence) || item.Confidence < cfg.MinConfidence || item.Confidence > 1)
                 return null;
             FileDiff file = files[item.File];
@@ -134,7 +135,7 @@ internal sealed class ReviewCache(string database, byte[] key, string cacheKey) 
         foreach (Finding finding in result.Findings)
         {
             int index = files.FindIndex(f => f.Path == finding.FilePath);
-            if (index < 0 || !RuleTaxonomy.IsCacheable(finding.RuleId) ||
+            if (index < 0 || !(RuleTaxonomy.IsCacheable(finding.RuleId) || result.ActiveRuleset?.ContainsRule(finding.RuleId) == true) ||
                 !files[index].NewLines.TryGetValue(finding.StartLine, out string? line) ||
                 Review.Fingerprint(finding.RuleId, finding.FilePath, line) != finding.Fingerprint) return;
             items.Add(new Item(index, finding.StartLine, finding.EndLine, finding.RuleId, finding.Severity, finding.Confidence));
