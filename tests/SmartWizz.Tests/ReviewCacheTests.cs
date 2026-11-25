@@ -45,6 +45,8 @@ public class ReviewCacheTests
     [Theory]
     [InlineData("std-custom-review", true)]
     [InlineData("std-unknown-review", false)]
+    [InlineData("custom-review-category", true)]
+    [InlineData("unknown-review-category", false)]
     public void Configured_rule_metadata_roundtrips_without_hardcoded_allowlist(string rule, bool expected)
     {
         string directory = Directory.CreateTempSubdirectory().FullName;
@@ -52,7 +54,7 @@ public class ReviewCacheTests
         {
             var ruleset = Ruleset.Parse("""
                 {"schemaVersion":1,"name":"Custom","version":"1","checks":[
-                  {"id":"std-custom-review","severity":"medium","files":["*.cs"],"check":"Review the changed code."}]}
+                  {"id":"std-custom-review","severity":"medium","categories":["custom-review-category"],"files":["*.cs"],"check":"Review the changed code."}]}
                 """);
             List<FileDiff> files = [new FileDiff { Path = "PRIVATE_FILE.cs" }];
             files[0].AddedLines.Add(1);
