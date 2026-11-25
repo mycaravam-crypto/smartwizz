@@ -87,7 +87,8 @@ public sealed class RulesetTests
 
     [Theory]
     [InlineData("unsupported", "hardcoded-credential")]
-    [InlineData("minimum", "arbitrary-category")]
+    [InlineData("minimum", "invalid category")]
+    [InlineData("minimum", "std-reserved")]
     [InlineData("minimum", "hardcoded-secret")]
     public void Invalid_severity_policy_is_rejected(string mode, string category)
     {
