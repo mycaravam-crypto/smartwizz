@@ -479,12 +479,16 @@ public static partial class Review
         string? evidence = Str("sourceLine");
         if (evidence is not null)
         {
-            if (evidence.Length > 4096 || evidence.Contains('\n') || evidence.Contains('\r'))
-                return Reject(out reason, $"{path}:{start}: invalid source evidence");
-            int[] matches = [.. file.AddedLines.Where(line => file.NewLines.TryGetValue(line, out string? text) &&
-                string.Equals(text.Trim(), evidence, StringComparison.Ordinal)).Take(2)];
-            if (matches.Length != 1)
-                return Reject(out reason, $"{path}:{start}: source evidence missing or ambiguous");
+            string[] quoted = evidence.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+            if (evidence.Length > 4096 || quoted.Length > 8 || quoted.Any(string.IsNullOrWhiteSpace))
+                return Reject(out reason, $"{path}:{start}: source-evidence-invalid");
+            int[] matches = [.. file.AddedLines.Where(line =>
+                quoted.Select((part, offset) => file.NewLines.TryGetValue(line + offset, out string? text) &&
+                    string.Equals(text.Trim(), part.Trim(), StringComparison.Ordinal)).All(match => match)).Take(2)];
+            if (matches.Length == 0)
+                return Reject(out reason, $"{path}:{start}: source-evidence-no-match");
+            if (matches.Length > 1)
+                return Reject(out reason, $"{path}:{start}: source-evidence-ambiguous");
             if (matches[0] != start.Value)
             {
                 relocated = true;
