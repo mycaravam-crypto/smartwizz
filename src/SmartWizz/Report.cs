@@ -36,6 +36,12 @@ public static class Report
         r.DuplicateDetections,
         r.KnownFindings,
         r.UnverifiedHistory,
+        r.HistoricalVerdicts,
+        r.HistoricalRevalidationRequests,
+        r.HistoricalRevalidationAttempts,
+        r.HistoricalRevalidationPromptTokens,
+        r.HistoricalRevalidationCompletionTokens,
+        r.HistoricalRevalidationMilliseconds,
         r.LocalFindingStates,
         r.HistoryElapsedMilliseconds,
         r.CacheHit,
@@ -101,6 +107,12 @@ public static class Report
 
     static string Duration(double milliseconds) =>
         FormattableString.Invariant($"{milliseconds / 1000:0.00}s");
+
+    static string RevalidationSummary(ReviewResult r) =>
+        $"Historical revalidation: {r.HistoricalVerdicts!.Count} candidate(s), " +
+        $"{r.HistoricalVerdicts.Count(v => v.Value == "supported")} supported, " +
+        $"{r.HistoricalVerdicts.Count(v => v.Value == "not-supported")} not supported, " +
+        $"{r.HistoricalVerdicts.Count(v => v.Value == "inconclusive")} inconclusive (advisory only)";
 
     static string HistorySummary(List<HistoricalFinding> history) =>
         $"Historical findings not confirmed in this inspection: {history.Count} (unverified, not resolved); " +
@@ -172,6 +184,7 @@ public static class Report
             ? $"Historical identities found: {known} (no new observations)\n"
             : $"Previously observed: {known} | New: {r.PersistentFindingIds.Count - known}\n"));
         if (r.UnverifiedHistory is { } historical) console.Write(new Text(HistorySummary(historical) + "\n"));
+        if (r.HistoricalVerdicts is not null) console.Write(new Text(RevalidationSummary(r) + "\n"));
         if (r.CacheHit) console.Write(new Text(CacheSummary(r) + "\n"));
         if (r.CacheLookupMilliseconds is { } lookup) console.Write(new Text($"Cache lookup: {Duration(lookup)}\n"));
         if (r.HistoryElapsedMilliseconds is { } history) console.Write(new Text($"History: {Duration(history)}\n"));
@@ -226,6 +239,7 @@ public static class Report
             ? $"Historical identities found: {known} (no new observations)"
             : $"Previously observed: {known} | New: {r.PersistentFindingIds.Count - known}");
         if (r.UnverifiedHistory is { } historical) w.WriteLine(HistorySummary(historical));
+        if (r.HistoricalVerdicts is not null) w.WriteLine(RevalidationSummary(r));
         if (r.CacheHit) w.WriteLine(CacheSummary(r));
         if (r.CacheLookupMilliseconds is { } lookup) w.WriteLine($"Cache lookup: {Duration(lookup)}");
         if (r.HistoryElapsedMilliseconds is { } history) w.WriteLine($"History: {Duration(history)}");
