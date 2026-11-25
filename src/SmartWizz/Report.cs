@@ -50,6 +50,7 @@ public static class Report
         r.CachedRequests,
         r.FindingSourceRules,
         r.SeverityDecisions,
+        r.StaticFindingFingerprints,
         r.PersistentFindingIds,
         r.SystemPromptCharacters,
         r.UserPromptCharacters,
