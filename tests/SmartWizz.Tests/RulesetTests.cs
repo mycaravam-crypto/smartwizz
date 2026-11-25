@@ -32,7 +32,7 @@ public sealed class RulesetTests
     static string Finding(string id, string path = "src/A.cs", int line = 1) => System.Text.Json.JsonSerializer.Serialize(new
     {
         findings = new[] { new { ruleId = id, severity = "medium", title = "Issue", message = "Fix it",
-            filePath = path, startLine = line, confidence = 0.9 } }
+            filePath = path, startLine = line, sourceRef = $"F1-L{line}", confidence = 0.9 } }
     });
 
     static Provider Provider(StubHandler stub, bool jsonSchema = false) =>
