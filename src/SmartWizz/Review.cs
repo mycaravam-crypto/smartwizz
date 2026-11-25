@@ -371,11 +371,12 @@ public static partial class Review
                 ["message"] = new JsonObject { ["type"] = "string" },
                 ["filePath"] = new JsonObject { ["type"] = "string", ["enum"] = Strings(paths) },
                 ["startLine"] = new JsonObject { ["type"] = "integer" },
+                ["sourceLine"] = new JsonObject { ["type"] = Strings(["string", "null"]) },
                 ["endLine"] = new JsonObject { ["type"] = Strings(["integer", "null"]) },
                 ["confidence"] = new JsonObject { ["type"] = "number" },
                 ["suggestedFix"] = new JsonObject { ["type"] = Strings(["string", "null"]) },
             },
-            ["required"] = Strings(["ruleId", "severity", "title", "message", "filePath", "startLine", "endLine", "confidence", "suggestedFix"]),
+            ["required"] = Strings(["ruleId", "severity", "title", "message", "filePath", "startLine", "sourceLine", "endLine", "confidence", "suggestedFix"]),
             ["additionalProperties"] = false,
         };
         if (!suggestFixes)
@@ -459,6 +460,24 @@ public static partial class Review
         }
         if (!files.TryGetValue(path, out FileDiff? file))
             return Reject(out reason, $"{path}: file not in reviewed diff");
+        // A quoted source line is evidence, not authority. Match only a unique added line
+        // in the same reviewed file; never guess an offset or match against context-only lines.
+        string? evidence = Str("sourceLine");
+        if (evidence is not null)
+        {
+            if (evidence.Length > 4096 || evidence.Contains('\n') || evidence.Contains('\r'))
+                return Reject(out reason, $"{path}:{start}: invalid source evidence");
+            int[] matches = [.. file.AddedLines.Where(line => file.NewLines.TryGetValue(line, out string? text) &&
+                string.Equals(text.Trim(), evidence, StringComparison.Ordinal)).Take(2)];
+            if (matches.Length != 1)
+                return Reject(out reason, $"{path}:{start}: source evidence missing or ambiguous");
+            if (matches[0] != start.Value)
+            {
+                start = matches[0];
+                // The original end location is not independently verified.
+                end = null;
+            }
+        }
         if (!file.AddedLines.Contains(start.Value) || !file.NewLines.TryGetValue(start.Value, out string? startText))
             return Reject(out reason, $"{path}:{start}: not an added line");
         if (end is not null && !IsVisibleRange(file, start.Value, end.Value))
