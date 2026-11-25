@@ -102,7 +102,8 @@ public static class Report
         FormattableString.Invariant($"{milliseconds / 1000:0.00}s");
 
     static string HistorySummary(List<HistoricalFinding> history) =>
-        $"Historical findings not confirmed in this inspection: {history.Count} (unverified, not resolved)";
+        $"Historical findings not confirmed in this inspection: {history.Count} (unverified, not resolved); " +
+        $"exact source anchors still present: {history.Count(f => f.AnchorEvidence == "exact-match")}";
 
     static string CacheSummary(ReviewResult r)
     {
