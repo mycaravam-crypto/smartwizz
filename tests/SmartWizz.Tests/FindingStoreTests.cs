@@ -291,8 +291,10 @@ public class FindingStoreTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
-    [Fact]
-    public void Inclusive_loop_alias_migration_preserves_canonical_identity_and_observations()
+    [Theory]
+    [InlineData("index-out-of-range")]
+    [InlineData("array-out-of-bounds")]
+    public void Inclusive_loop_alias_migration_preserves_canonical_identity_and_observations(string alias)
     {
         string directory = Directory.CreateTempSubdirectory().FullName;
         string database = Path.Combine(directory, "history.db");
@@ -304,12 +306,12 @@ public class FindingStoreTests
             ReviewResult canonical = Make("off-by-one", 71);
             canonical.FindingAnchors["fp"] = source;
             FindingStore.Record(database, key, "repo", "scope", "revision", canonical);
-            ReviewResult legacy = Make("index-out-of-range", 71);
+            ReviewResult legacy = Make(alias, 71);
             legacy.FindingAnchors["fp"] = source;
             FindingStore.Record(database, key, "repo", "scope", "revision", legacy);
-            ReviewResult current = Make("index-out-of-range", 71);
+            ReviewResult current = Make(alias, 71);
             current.FindingAnchors["fp"] = source;
-            current.FindingCategories["fp"] = RuleTaxonomy.Canonical("index-out-of-range", line);
+            current.FindingCategories["fp"] = RuleTaxonomy.Canonical(alias, line);
             FindingStore.Record(database, key, "repo", "scope", "revision", current);
             Assert.Equal(1, current.KnownFindings);
             Assert.Equal(canonical.PersistentFindingIds["fp"], current.PersistentFindingIds["fp"]);
@@ -333,6 +335,8 @@ public class FindingStoreTests
     [InlineData("index-out-of-range", "for (int i = 0; i < values.Length; i++)", "index-out-of-range")]
     [InlineData("index-out-of-range", "for (int i = 0; j <= values.Length; i++)", "index-out-of-range")]
     [InlineData("index-out-of-range", "return values[index];", "index-out-of-range")]
+    [InlineData("array-out-of-bounds", "for (int i = 0; i <= values.Length; i++)", "off-by-one")]
+    [InlineData("array-out-of-bounds", "return values[index];", "array-out-of-bounds")]
     [InlineData("std-injection", """return $"SELECT * FROM T WHERE Id = {id}";""", "sql-injection")]
     [InlineData("std-injection", """Process.Start("cmd", input);""", "std-injection")]
     [InlineData("std-hardcoded-config", """string Password = "FAKE_TEST_SECRET";""", "hardcoded-credential")]
