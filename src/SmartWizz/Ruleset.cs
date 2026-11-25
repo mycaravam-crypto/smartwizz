@@ -42,6 +42,7 @@ public sealed class Ruleset
         public string Name { get; set; } = "";
         public string Version { get; set; } = "";
         public Dictionary<string, string[]> FileGroups { get; set; } = [];
+        public Dictionary<string, string> CategoryAliases { get; set; } = [];
         public List<RulesetCheck> Checks { get; set; } = [];
         public List<UncheckedRef> NotChecked { get; set; } = [];
     }
@@ -79,14 +80,16 @@ public sealed class Ruleset
     public string Sha256 { get; }
     public IReadOnlyList<Check> Checks { get; }
     public IReadOnlyList<UncheckedRef> NotChecked { get; }
+    readonly IReadOnlyDictionary<string, string> categoryAliases;
 
-    Ruleset(string name, string version, string sha256, IReadOnlyList<Check> checks, IReadOnlyList<UncheckedRef> notChecked)
+    Ruleset(string name, string version, string sha256, IReadOnlyList<Check> checks, IReadOnlyList<UncheckedRef> notChecked, IReadOnlyDictionary<string, string> aliases)
     {
         Name = name;
         Version = version;
         Sha256 = sha256;
         Checks = checks;
         NotChecked = notChecked;
+        categoryAliases = aliases;
     }
 
     public static Ruleset Load(string path) => Parse(File.ReadAllText(path));
@@ -159,8 +162,15 @@ public sealed class Ruleset
         if (doc.NotChecked.Any(n => string.IsNullOrWhiteSpace(n.Ref) || string.IsNullOrWhiteSpace(n.Reason)))
             throw Error("every notChecked entry needs a ref and a reason");
 
+        var categories = checks.SelectMany(check => check.Source.Categories).ToHashSet(StringComparer.Ordinal);
+        if (doc.CategoryAliases is null || doc.CategoryAliases.Any(alias =>
+            alias.Key.Length > 128 || !Regex.IsMatch(alias.Key, "^[a-z0-9]+(?:-[a-z0-9]+)*$", RegexOptions.CultureInvariant) ||
+            alias.Key.StartsWith("std-", StringComparison.Ordinal) || RuleTaxonomy.IsCacheable(alias.Key) ||
+            categories.Contains(alias.Key) || alias.Value is null || !categories.Contains(alias.Value)))
+            throw Error("categoryAliases must map new identifiers directly to declared canonical categories");
+
         string sha = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
-        return new Ruleset(doc.Name, doc.Version, sha, checks, doc.NotChecked);
+        return new Ruleset(doc.Name, doc.Version, sha, checks, doc.NotChecked, doc.CategoryAliases);
     }
 
     internal (Severity Effective, string[] Rules) ApplySeverity(Severity model, string category, IEnumerable<string> reportedRules, FileDiff file)
@@ -175,6 +185,11 @@ public sealed class Ruleset
     }
 
     internal bool ContainsRule(string rule) => Checks.Any(check => string.Equals(check.Id, rule, StringComparison.Ordinal));
+
+    internal string CanonicalCategory(string rule, string source) =>
+        categoryAliases.TryGetValue(rule.ToLowerInvariant(), out string? category) ? category : RuleTaxonomy.Canonical(rule, source);
+
+    internal bool ContainsAlias(string rule) => categoryAliases.ContainsKey(rule);
 
     internal bool ContainsCategory(string category) => Checks.Any(check => check.Source.Categories.Contains(category, StringComparer.Ordinal));
 
