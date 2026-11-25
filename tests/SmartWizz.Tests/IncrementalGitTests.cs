@@ -18,6 +18,21 @@ public class IncrementalGitTests
         Assert.True(p.ExitCode == 0, error);
     }
 
+    // Git for Windows marks loose objects read-only. Only clear that bit in our disposable fixture.
+    internal static void DeleteTestRepository(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            foreach (string file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+            {
+                FileAttributes attributes = File.GetAttributes(file);
+                if ((attributes & FileAttributes.ReadOnly) != 0)
+                    File.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
+            }
+        }
+        Directory.Delete(path, recursive: true);
+    }
+
     internal static string Sha(string path)
     {
         var psi = new ProcessStartInfo("git") { RedirectStandardOutput = true };
@@ -60,7 +75,7 @@ public class IncrementalGitTests
             Assert.DoesNotContain("untracked.cs", diff);
             Assert.Contains(1, file.AddedLines);
         }
-        finally { Directory.Delete(dir, recursive: true); }
+        finally { DeleteTestRepository(dir); }
     }
 
     [Fact]
@@ -91,7 +106,7 @@ public class IncrementalGitTests
             Assert.DoesNotContain("untracked.cs", diff);
             Assert.Equal(["untracked.cs"], await GitDiff.ListUntrackedAsync(dir, default));
         }
-        finally { Directory.Delete(dir, recursive: true); }
+        finally { DeleteTestRepository(dir); }
     }
 
     [Fact]
@@ -135,6 +150,6 @@ public class IncrementalGitTests
             string fallback = await GitDiff.RunIncrementalAsync(dir, baseSha, rewritten, reviewed, 3, default);
             Assert.Equal(await GitDiff.RunAsync(dir, baseSha, rewritten, 3, default), fallback);
         }
-        finally { Directory.Delete(dir, recursive: true); }
+        finally { DeleteTestRepository(dir); }
     }
 }
