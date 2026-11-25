@@ -125,12 +125,12 @@ public sealed class RulesetTests
     [InlineData("hardcoded-secret", "custom-category")]
     public void Invalid_configured_aliases_are_rejected(string alias, string target)
     {
-        string json = $"""
+        string json = """
             {"schemaVersion":1,"name":"Custom","version":"1",
-             "categoryAliases":{"{{alias}}":"{{target}}"},
+             "categoryAliases":{"ALIAS":"TARGET"},
              "checks":[{"id":"std-custom","severity":"high","categories":["custom-category"],
                  "files":["*.cs"],"check":"Review the change."}]}
-            """;
+            """.Replace("ALIAS", alias, StringComparison.Ordinal).Replace("TARGET", target, StringComparison.Ordinal);
         Assert.Throws<SmartWizzException>(() => Ruleset.Parse(json));
     }
 
