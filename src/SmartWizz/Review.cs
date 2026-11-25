@@ -462,6 +462,7 @@ public static partial class Review
             return Reject(out reason, $"{path}: file not in reviewed diff");
         // A quoted source line is evidence, not authority. Match only a unique added line
         // in the same reviewed file; never guess an offset or match against context-only lines.
+        bool relocated = false;
         string? evidence = Str("sourceLine");
         if (evidence is not null)
         {
@@ -473,6 +474,7 @@ public static partial class Review
                 return Reject(out reason, $"{path}:{start}: source evidence missing or ambiguous");
             if (matches[0] != start.Value)
             {
+                relocated = true;
                 start = matches[0];
                 // The original end location is not independently verified.
                 end = null;
@@ -496,7 +498,7 @@ public static partial class Review
             ruleId = canonical;
         }
         // Optional: a malformed suggestion never costs the finding itself.
-        string? fix = e.TryGetProperty("suggestedFix", out JsonElement s) && s.ValueKind == JsonValueKind.String ? CleanCode(RuleTaxonomy.Redact(s.GetString()!, literals)) : null;
+        string? fix = !relocated && e.TryGetProperty("suggestedFix", out JsonElement s) && s.ValueKind == JsonValueKind.String ? CleanCode(RuleTaxonomy.Redact(s.GetString()!, literals)) : null;
         ruleId = RuleTaxonomy.Redact(ruleId, literals);
         return new Finding(ruleId, sev.Value, Cap(Sanitize(RuleTaxonomy.Redact(title, literals), false), 200),
             Cap(Sanitize(RuleTaxonomy.Redact(message, literals), true), 4000), path, start.Value,
