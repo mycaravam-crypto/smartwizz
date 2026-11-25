@@ -250,7 +250,7 @@ public sealed record Options
         return this with
         {
             Remember = enabled && (remember ?? true),
-            Cache = enabled && AnnotatedDiffPath is null && (cache ?? FailOn is null),
+            Cache = enabled && AnnotatedDiffPath is null && (cache ?? (FailOn is null)),
             InitializeHistory = enabled && (remember == true || cache == true),
         };
     }
