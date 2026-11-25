@@ -52,6 +52,14 @@ public sealed class ReviewResult
     public int DuplicateDetections => Math.Max(0, RawDetections - Findings.Count);
     public int? KnownFindings { get; set; }
     public List<HistoricalFinding>? UnverifiedHistory { get; set; }
+    internal List<HistoricalRevalidation.Candidate> HistoricalCandidates { get; } = [];
+    internal bool CollectHistoricalCandidates { get; set; }
+    public Dictionary<string, string>? HistoricalVerdicts { get; set; }
+    public int HistoricalRevalidationRequests { get; set; }
+    public int? HistoricalRevalidationAttempts { get; set; }
+    public int? HistoricalRevalidationPromptTokens { get; set; }
+    public int? HistoricalRevalidationCompletionTokens { get; set; }
+    public double? HistoricalRevalidationMilliseconds { get; set; }
     public Dictionary<string, LocalFindingState> LocalFindingStates { get; } = new(StringComparer.Ordinal);
     internal List<FileDiff> ReviewedSourceFiles { get; set; } = [];
     public double? HistoryElapsedMilliseconds { get; set; }
