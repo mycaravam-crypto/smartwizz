@@ -50,6 +50,43 @@ public class ReviewTests
         Assert.Equal(reported == 12 ? "corrected();" : null, finding.SuggestedFix);
     }
 
+    [Theory]
+    [InlineData("first();\n second();", true, false, false)]
+    [InlineData("first();\r\n second();", true, false, false)]
+    [InlineData("first();\n second();", false, true, false)]
+    [InlineData("first();\n second();", false, false, true)]
+    [InlineData("first();\n altered();", false, false, false)]
+    public void Multiline_evidence_requires_unique_contiguous_source(string evidence, bool accepted, bool duplicate, bool gap)
+    {
+        var file = new FileDiff { Path = "src/Calc.cs" };
+        file.NewLines.Add(12, "    first();");
+        file.NewLines.Add(gap ? 14 : 13, "    second();");
+        file.AddedLines.Add(12);
+        if (duplicate)
+        {
+            file.NewLines.Add(20, "first();");
+            file.NewLines.Add(21, "second();");
+            file.AddedLines.Add(20);
+        }
+        var files = new Dictionary<string, FileDiff> { [file.Path] = file };
+        string reply = One(Good.Replace("\"startLine\":12", "\"startLine\":99") +
+            ",\"sourceLine\":" + System.Text.Json.JsonSerializer.Serialize(evidence));
+        var rejected = new List<string>();
+        List<Finding> findings = Review.Parse(reply, files, 0.5, rejected);
+        if (accepted)
+        {
+            Finding finding = Assert.Single(findings);
+            Assert.Equal(12, finding.StartLine);
+            Assert.Null(finding.EndLine);
+            Assert.Empty(rejected);
+        }
+        else
+        {
+            Assert.Empty(findings);
+            Assert.Contains(duplicate ? "source-evidence-ambiguous" : "source-evidence-no-match", Assert.Single(rejected), StringComparison.Ordinal);
+        }
+    }
+
     [Fact]
     public void Parses_valid_finding_inside_code_fence()
     {
