@@ -425,8 +425,11 @@ public static class FindingStore
                 string category = RuleTaxonomy.StorageCategory(rows.GetString(1));
                 reviewedPaths.TryGetValue(rows.GetString(6), out FileDiff? file);
                 (string status, int? line) = MatchHistoricalAnchor(key, file, category, rows.GetString(7), ref anchorBudget, ct);
+                string pattern = status == "exact-match" && line is { } matched && file is not null &&
+                    file.Path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
+                    ? RuleTaxonomy.HistoricalPattern(category, file.NewLines[matched]) : "not-checked";
                 unverified.Add(new HistoricalFinding(id, category,
-                    (Severity)rows.GetInt32(2), rows.GetInt32(3), rows.GetInt64(4), rows.GetInt64(5), status, line, rows.GetString(8)));
+                    (Severity)rows.GetInt32(2), rows.GetInt32(3), rows.GetInt64(4), rows.GetInt64(5), status, line, rows.GetString(8), pattern));
             }
         }
         ct.ThrowIfCancellationRequested();
