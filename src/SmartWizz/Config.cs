@@ -9,6 +9,7 @@ public sealed class Config
     public ReviewConfig Review { get; set; } = new();
     public AzureDevOpsConfig AzureDevOps { get; set; } = new();
     public GitHubConfig GitHub { get; set; } = new();
+    public StorageConfig Storage { get; set; } = new();
 
     public static readonly JsonSerializerOptions Json = new()
     {
@@ -116,6 +117,13 @@ public sealed class Config
             throw new SmartWizzException(FailureKind.Configuration, $"invalid config {path}: {e.Message}", e);
         }
     }
+}
+
+public sealed class StorageConfig
+{
+    // null = mode default; explicit true also authorizes initialization of protected local storage.
+    public bool? Remember { get; set; }
+    public bool? Cache { get; set; }
 }
 
 public sealed class ProviderConfig
