@@ -94,6 +94,7 @@ public class ReviewTests
     [InlineData("F1-L99", 12, false)]
     [InlineData("F2-L12", 12, false)]
     [InlineData("", 12, false)]
+    [InlineData("not-a-reference", 12, false)]
     public void Source_reference_must_belong_to_added_line_in_reported_file(string reference, int reported, bool accepted)
     {
         var file = new FileDiff { Path = "src/Calc.cs" };
@@ -114,7 +115,9 @@ public class ReviewTests
         if (!accepted)
         {
             Assert.Empty(findings);
-            Assert.Single(rejected);
+            string expected = reference is "" or "not-a-reference" ? "source-reference-malformed" :
+                reference == "F2-L12" ? "source-reference-file-mismatch" : "source-reference-unknown";
+            Assert.Contains(expected, Assert.Single(rejected), StringComparison.Ordinal);
             return;
         }
         Finding finding = Assert.Single(findings);
