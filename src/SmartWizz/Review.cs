@@ -245,12 +245,12 @@ public static partial class Review
         result.RawDetections = all.Count;
         // Within a run, only equivalent categories at the same validated location merge.
         // Keep legacy fingerprints on representatives for checkpoint compatibility.
-        List<(Finding Finding, int[] Requests)> representatives = all.GroupBy(f => (f.FilePath, f.StartLine, End: f.EndLine ?? f.StartLine, Rule: RuleTaxonomy.Canonical(f.RuleId)))
+        var representatives = all.GroupBy(f => (f.FilePath, f.StartLine, End: f.EndLine ?? f.StartLine, Rule: RuleTaxonomy.Canonical(f.RuleId)))
             .Select(g => (Finding: g.OrderByDescending(f => f.Severity).ThenByDescending(f => f.Confidence).First(),
                 Requests: g.Select(f => origins[f]).Distinct().Order().ToArray())).ToList();
         // Legacy fingerprint collisions can occur on identical statements in different locations.
         // Disambiguate those instances rather than silently discarding distinct defects.
-        HashSet<string> collisions = representatives.GroupBy(f => f.Finding.Fingerprint).Where(g => g.Count() > 1)
+        var collisions = representatives.GroupBy(f => f.Finding.Fingerprint).Where(g => g.Count() > 1)
             .Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
         result.Findings = [];
         foreach ((Finding representative, int[] requests) in representatives)
@@ -264,7 +264,7 @@ public static partial class Review
             result.FindingSourceRequests.Add(finding.Fingerprint, requests);
         }
         result.Findings = [.. result.Findings.OrderByDescending(f => f.Severity).ThenBy(f => f.FilePath, StringComparer.Ordinal).ThenBy(f => f.StartLine)];
-        Dictionary<string, FileDiff> byPath = files.ToDictionary(f => f.Path, StringComparer.Ordinal);
+        var byPath = files.ToDictionary(f => f.Path, StringComparer.Ordinal);
         foreach (Finding finding in result.Findings)
         {
             FileDiff file = byPath[finding.FilePath];
