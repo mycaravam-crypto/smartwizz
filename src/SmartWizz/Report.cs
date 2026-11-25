@@ -31,6 +31,11 @@ public static class Report
         r.MaxParallelRequests,
         r.RequestTimings,
         r.FindingRequests,
+        r.FindingSourceRequests,
+        r.RawDetections,
+        r.DuplicateDetections,
+        r.KnownFindings,
+        r.PersistentFindingIds,
         r.SystemPromptCharacters,
         r.UserPromptCharacters,
         r.PromptTokens,
@@ -140,6 +145,8 @@ public static class Report
         if (r.RulesetName is not null)
             console.Write(new Text(Safe($"Ruleset: {r.RulesetName} {r.RulesetVersion}\n")));
         console.Write(new Text($"{r.Requests} request(s)\n"));
+        console.Write(new Text($"Detections: {r.RawDetections} | Duplicates merged: {r.DuplicateDetections}\n"));
+        if (r.KnownFindings is { } known) console.Write(new Text($"Previously observed: {known}\n"));
         if (TimingSummary(r) is { } timingSummary)
             console.Write(new Text(timingSummary + "\n"));
 
@@ -167,6 +174,8 @@ public static class Report
             body.AddRow(new Text(Safe($"Rule: {f.RuleId} | Confidence: {FormattableString.Invariant($"{f.Confidence * 100:0}%")}  | fp {f.Fingerprint}")));
             if (FindingTiming(r, f) is { } findingTiming)
                 body.AddRow(new Text(findingTiming));
+            if (r.PersistentFindingIds.TryGetValue(f.Fingerprint, out string? persistentId))
+                body.AddRow(new Text($"Finding ID: {persistentId}"));
             var panel = new Panel(body)
             {
                 Header = new PanelHeader($"[{color} bold]{f.Severity.ToString().ToUpperInvariant()}[/]"),
@@ -184,6 +193,8 @@ public static class Report
     {
         w.WriteLine(Summary(r));
         if (TimingSummary(r) is { } timingSummary) w.WriteLine(timingSummary);
+        w.WriteLine($"Detections: {r.RawDetections} | Duplicates merged: {r.DuplicateDetections}");
+        if (r.KnownFindings is { } known) w.WriteLine($"Previously observed: {known}");
         if (r.Models.Count > 0)
             w.WriteLine($"Reviewed by: {string.Join(", ", r.Models)}");
         if (r.RulesetName is not null)
@@ -203,6 +214,7 @@ public static class Report
             }
             w.WriteLine($"    ({f.RuleId}, confidence {f.Confidence:0.00}, fp {f.Fingerprint})");
             if (FindingTiming(r, f) is { } findingTiming) w.WriteLine("    " + findingTiming);
+            if (r.PersistentFindingIds.TryGetValue(f.Fingerprint, out string? persistentId)) w.WriteLine($"    Finding ID: {persistentId}");
         }
         if (r.SkippedFiles.Count > 0)
         {
