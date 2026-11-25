@@ -71,6 +71,7 @@ public sealed class ReviewResult
     public int CachedRequests { get; set; }
     public Dictionary<string, SeverityDecision> SeverityDecisions { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, string[]> FindingSourceRules { get; } = new(StringComparer.Ordinal);
+    internal Ruleset? ActiveRuleset { get; set; }
     internal Dictionary<string, string> FindingCategories { get; } = new(StringComparer.Ordinal);
     internal Dictionary<string, string> FindingAnchors { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, string> PersistentFindingIds { get; } = new(StringComparer.Ordinal);
@@ -110,6 +111,7 @@ public static partial class Review
         var result = new ReviewResult
         {
             MaxParallelRequests = cfg.MaxParallelRequests,
+            ActiveRuleset = ruleset,
             RulesetName = ruleset?.Name,
             RulesetVersion = ruleset?.Version,
             RulesetSha256 = ruleset?.Sha256,
