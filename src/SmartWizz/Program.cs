@@ -163,7 +163,14 @@ public static class Program
             opt, previous, cfg.Review, provider, prompts, reviewScope, ruleset, Console.Error, ct, progress, cfg.Provider.Model);
 
         if (opt.Remember)
-            await FindingStore.TryRecordAsync(opt, reviewScope, result, Console.Error, ct);
+        {
+            string legacySystem = Review.SystemPrompt(Review.FormatPrompt(LoadPrompt("review-format-v1.md"), cfg.Review), legacyStandard);
+            string legacyScope = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(
+                JsonSerializer.Serialize(new { cfg.Provider, cfg.Review, cfg.AzureDevOps, cfg.GitHub }) +
+                legacySystem + prompts.Review + prompts.Standards + prompts.Revalidation + (ruleset?.Sha256 ?? ""))));
+            string historyScope = FindingStore.PolicyScope(ruleset?.Sha256, legacyStandard);
+            await FindingStore.TryRecordAsync(opt, historyScope, result, Console.Error, ct, legacyScope);
+        }
         result.EndToEndMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         if (opt.Problems) Report.WriteProblems(result, Console.Out);
         else if (!plain && !Console.IsOutputRedirected && AnsiConsole.Profile.Capabilities.Interactive)
