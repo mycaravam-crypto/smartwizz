@@ -69,6 +69,7 @@ public sealed class ReviewResult
     public long? CacheCreatedUnixSeconds { get; set; }
     public double? CacheLookupMilliseconds { get; set; }
     public int CachedRequests { get; set; }
+    public List<string> StaticFindingFingerprints { get; } = [];
     public Dictionary<string, SeverityDecision> SeverityDecisions { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, string[]> FindingSourceRules { get; } = new(StringComparer.Ordinal);
     internal Dictionary<string, string> FindingCategories { get; } = new(StringComparer.Ordinal);
@@ -271,6 +272,14 @@ public static partial class Review
         }
         result.ReviewedFiles = totalFiles;
         result.ReviewedSourceFiles = [.. batches.SelectMany(b => b)];
+        foreach (FileDiff file in result.ReviewedSourceFiles)
+        {
+            foreach (Finding finding in CSharpAnalysis.Analyze(file, ct))
+            {
+                all.Add(finding);
+                origins.Add(finding, 0);
+            }
+        }
         result.RawDetections = all.Count;
         // Within a run, only equivalent categories at the same validated location merge.
         // Keep legacy fingerprints on representatives for checkpoint compatibility.
@@ -305,8 +314,9 @@ public static partial class Review
                 }
             }
             result.Findings.Add(finding);
-            result.FindingRequests.Add(finding.Fingerprint, origins[representative]);
-            result.FindingSourceRequests.Add(finding.Fingerprint, requests);
+            if (requests.Contains(0)) result.StaticFindingFingerprints.Add(finding.Fingerprint);
+            if (origins[representative] != 0) result.FindingRequests.Add(finding.Fingerprint, origins[representative]);
+            result.FindingSourceRequests.Add(finding.Fingerprint, [.. requests.Where(request => request != 0)]);
             result.FindingSourceRules.Add(finding.Fingerprint, rules);
             result.FindingCategories.Add(finding.Fingerprint, category);
         }
