@@ -227,7 +227,10 @@ public static class FindingStore
             throw new SmartWizzException(FailureKind.Usage, "resolution requires the full 64-character finding ID from JSON");
         using var db = new SqliteConnection(new SqliteConnectionStringBuilder
         {
-            DataSource = database, Mode = SqliteOpenMode.ReadWrite, Pooling = false, DefaultTimeout = 5,
+            DataSource = database,
+            Mode = SqliteOpenMode.ReadWrite,
+            Pooling = false,
+            DefaultTimeout = 5,
         }.ToString());
         db.Open();
         using SqliteTransaction tx = db.BeginTransaction();
