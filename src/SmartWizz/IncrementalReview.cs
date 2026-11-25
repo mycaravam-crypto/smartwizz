@@ -32,19 +32,31 @@ public static class IncrementalReview
             string diff = await LocalDiffAsync(opt, cfg.ContextLines, ct);
             List<FileDiff> localFiles = GitDiff.Parse(diff);
             ReviewCache? cache = null;
+            double? lookup = null;
             try
             {
-                if (opt.Cache && !string.IsNullOrWhiteSpace(cacheModel))
+                if ((opt.Cache || opt.InvalidateCache) && !string.IsNullOrWhiteSpace(cacheModel))
                 {
                     try
                     {
+                        long lookupStarted = System.Diagnostics.Stopwatch.GetTimestamp();
                         cache = await ReviewCache.OpenAsync(opt, reviewScope, diff, ct);
+                        if (opt.InvalidateCache)
+                        {
+                            cache?.Invalidate(ct);
+                            cache?.Dispose();
+                            cache = null;
+                            log.WriteLine("review cache bypass: matching entry invalidated");
+                        }
                         if (cache?.Read(localFiles, cfg, ruleset, cacheModel, ct) is { } cached)
                         {
+                            cached.CacheLookupMilliseconds = System.Diagnostics.Stopwatch.GetElapsedTime(lookupStarted).TotalMilliseconds;
                             log.WriteLine("review cache hit: historical metadata, no new LLM inspection");
                             return new ReviewRun(localPlan, cached, null);
                         }
-                        log.WriteLine(cache is null ? "review cache unavailable: fresh inspection" : "review cache miss: fresh inspection");
+                        lookup = System.Diagnostics.Stopwatch.GetElapsedTime(lookupStarted).TotalMilliseconds;
+                        if (!opt.InvalidateCache)
+                            log.WriteLine(cache is null ? "review cache unavailable: fresh inspection" : "review cache miss: fresh inspection");
                     }
                     catch (Exception e) when (CacheFailure(e))
                     {
@@ -55,6 +67,7 @@ public static class IncrementalReview
                 }
 
                 ReviewResult localResult = await Review.RunAsync(localFiles, cfg, provider, prompts, ct, ruleset, progress);
+                localResult.CacheLookupMilliseconds = lookup;
                 if (cache is not null && cacheModel is not null)
                 {
                     try { cache.Write(localFiles, localResult, cacheModel, ct); }
