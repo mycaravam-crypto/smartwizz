@@ -12,6 +12,14 @@ This benchmark evaluates **LLM review findings**, not whether a compiler or anal
 
 The ground truth should **not** be included in the defective PR. Only seed cases/actual source edits are sent to the LLM; reviewers must not receive the answer key. Keep the benchmark PR open and **never merge it**. It has intentional flaws and may cause CI failure if quality gates include the fixture.
 
+## Current stabilization baseline
+
+Before extending storage, lifecycle or language-specific analysis, compare the current main revision and the candidate with the same pinned fixture, provider/model, ruleset hash, context, temperature, confidence threshold and pass size. Run at least three fresh reviews per revision with local history/cache disabled (`--stateless` for local checks; no checkpoint reuse for PR mode). Keep the independent answer key and adjudication outside the reviewed diff. Do not publish findings during benchmarks.
+
+Record each run's adjudicated precision, recall, F1, per-defect detection frequency, reported severity versus the answer key, exact-line attribution, skipped/rejected findings, provider attempts and end-to-end wall time. Reject cache hits as fresh performance measurements. Report failures separately; do not treat them as successful zero-finding runs. Use issue #32 for attribution and #33 for missed applicable checks. Historical #27 results used a different model; do not attribute model changes to reviewer improvements.
+
+After establishing detection quality, compare concurrency 1/2/4/8 using a fixed representative multi-file diff that actually produces independent batches; keep passes within each batch sequential. Record actual batch/request counts, provider retries and failures. Compare medians and individual runs; do not claim a speedup from cache reuse or change the default concurrency without evidence. The existing 16-defect fixture is a starting sample, not proof of full ruleset coverage. Expand fixtures only to close measured coverage gaps, including clean negative controls.
+
 ## Metrics
 
 - **Recall** = matched distinct seeded defects / total seeded defects.

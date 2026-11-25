@@ -50,6 +50,36 @@ public class FindingStoreTests
     }
 
     [Fact]
+    public void Configured_rule_history_retains_trusted_category_without_hardcoded_taxonomy()
+    {
+        string directory = Directory.CreateTempSubdirectory().FullName;
+        string database = Path.Combine(directory, "history.db");
+        byte[] key = new byte[32];
+        try
+        {
+            const string rule = "std-custom-review";
+            var ruleset = Ruleset.Parse("""
+                {"schemaVersion":1,"name":"Custom","version":"1","checks":[
+                  {"id":"std-custom-review","severity":"medium","files":["*.cs"],"check":"Review the changed code."}]}
+                """);
+            ReviewResult first = Make(rule, 59);
+            first.ActiveRuleset = ruleset;
+            FindingStore.Record(database, key, "repo", "scope", "revision", first);
+            var absent = new ReviewResult { ActiveRuleset = ruleset };
+            FindingStore.Record(database, key, "repo", "scope", "revision", absent);
+            HistoricalFinding historical = Assert.Single(Assert.IsType<List<HistoricalFinding>>(absent.UnverifiedHistory));
+            Assert.Equal(rule, historical.Category);
+            Assert.Equal(first.PersistentFindingIds["fp"], historical.Id);
+            ReviewResult second = Make(rule, 59);
+            second.ActiveRuleset = ruleset;
+            FindingStore.Record(database, key, "repo", "scope", "revision", second);
+            Assert.Equal(1, second.KnownFindings);
+            Assert.Equal(first.PersistentFindingIds["fp"], second.PersistentFindingIds["fp"]);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Fact]
     public void Missing_observation_is_unverified_not_resolved_and_scope_isolated()
     {
         string directory = Directory.CreateTempSubdirectory().FullName;

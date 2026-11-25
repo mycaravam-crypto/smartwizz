@@ -85,9 +85,59 @@ public sealed class RulesetTests
         }
     }
 
+    [Fact]
+    public async Task Custom_category_uses_ruleset_policy_without_application_taxonomy()
+    {
+        var rules = Ruleset.Parse(Sample.Replace(
+            "\"id\": \"std-secret\", \"severity\": \"high\"",
+            "\"id\": \"std-secret\", \"severity\": \"high\", \"severityMode\": \"minimum\", \"categories\": [\"custom-review-category\"]"));
+        var stub = new StubHandler((_, _) => StubHandler.Chat(Finding("custom-review-category")));
+        ReviewResult result = await Review.RunAsync(Added("src/A.cs", "password = 1"), new ReviewConfig(), Provider(stub), Prompts, default, rules);
+        Finding finding = Assert.Single(result.Findings);
+        Assert.Equal(Severity.High, finding.Severity);
+        Assert.Equal("custom-review-category", result.FindingCategories[finding.Fingerprint]);
+        Assert.Equal(["std-secret"], result.SeverityDecisions[finding.Fingerprint].PolicyRules);
+    }
+
+    [Fact]
+    public async Task Configured_aliases_reconcile_equivalent_findings_at_the_same_location()
+    {
+        var rules = Ruleset.Parse("""
+            {"schemaVersion":1,"name":"Custom","version":"1",
+             "categoryAliases":{"alternate-category":"custom-category"},
+             "checks":[{"id":"std-custom","severity":"high","severityMode":"minimum",
+                 "categories":["custom-category"],"files":["*.cs"],"check":"Review the change."}]}
+            """);
+        string reply = """{"findings":[""" + Finding("alternate-category")[13..^2] + "," + Finding("custom-category")[13..^2] + "]}";
+        var stub = new StubHandler((_, _) => StubHandler.Chat(reply));
+        ReviewResult result = await Review.RunAsync(Added("src/A.cs", "Run();"), new ReviewConfig(), Provider(stub), Prompts, default, rules);
+        Finding finding = Assert.Single(result.Findings);
+        Assert.Equal("custom-category", result.FindingCategories[finding.Fingerprint]);
+        Assert.Equal(Severity.High, finding.Severity);
+        Assert.Equal(2, result.RawDetections);
+        Assert.Equal(1, result.DuplicateDetections);
+    }
+
+    [Theory]
+    [InlineData("alternate-category", "unknown-category")]
+    [InlineData("custom-category", "custom-category")]
+    [InlineData("std-reserved", "custom-category")]
+    [InlineData("hardcoded-secret", "custom-category")]
+    public void Invalid_configured_aliases_are_rejected(string alias, string target)
+    {
+        string json = """
+            {"schemaVersion":1,"name":"Custom","version":"1",
+             "categoryAliases":{"ALIAS":"TARGET"},
+             "checks":[{"id":"std-custom","severity":"high","categories":["custom-category"],
+                 "files":["*.cs"],"check":"Review the change."}]}
+            """.Replace("ALIAS", alias, StringComparison.Ordinal).Replace("TARGET", target, StringComparison.Ordinal);
+        Assert.Throws<SmartWizzException>(() => Ruleset.Parse(json));
+    }
+
     [Theory]
     [InlineData("unsupported", "hardcoded-credential")]
-    [InlineData("minimum", "arbitrary-category")]
+    [InlineData("minimum", "invalid category")]
+    [InlineData("minimum", "std-reserved")]
     [InlineData("minimum", "hardcoded-secret")]
     public void Invalid_severity_policy_is_rejected(string mode, string category)
     {
@@ -95,6 +145,21 @@ public sealed class RulesetTests
             "\"id\": \"std-secret\", \"severity\": \"high\"",
             $"\"id\": \"std-secret\", \"severity\": \"high\", \"severityMode\": \"{mode}\", \"categories\": [\"{category}\"]");
         Assert.Throws<SmartWizzException>(() => Ruleset.Parse(json));
+    }
+
+    [Theory]
+    [InlineData(false, "no-findings-reported")]
+    [InlineData(true, "incomplete")]
+    public async Task Coverage_distinguishes_unsent_checks_and_rejected_responses(bool rejected, string expected)
+    {
+        string reply = rejected ? Finding("std-unknown") : """{"findings":[]}""";
+        var stub = new StubHandler((_, _) => StubHandler.Chat(reply));
+        ReviewResult result = await Review.RunAsync(Added("src/A.cs", "catch { }"), new ReviewConfig(), Provider(stub), Prompts, default, Rules);
+        Assert.Equal(expected, result.Checks!["std-swallowed"].Status);
+        Assert.Equal("not-applicable-to-reviewed-files", result.Checks["std-secret"].Status);
+        Assert.Equal("reviewed-files-only", result.RulesetCoverageScope);
+        Assert.Equal("5.1", Assert.Single(result.RulesetNotChecked!).Ref);
+        Assert.Contains("rulesetCoverageScope", Report.ToJson(result));
     }
 
     [Fact]

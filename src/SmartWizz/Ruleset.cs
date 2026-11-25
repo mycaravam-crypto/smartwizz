@@ -42,6 +42,7 @@ public sealed class Ruleset
         public string Name { get; set; } = "";
         public string Version { get; set; } = "";
         public Dictionary<string, string[]> FileGroups { get; set; } = [];
+        public Dictionary<string, string> CategoryAliases { get; set; } = [];
         public List<RulesetCheck> Checks { get; set; } = [];
         public List<UncheckedRef> NotChecked { get; set; } = [];
     }
@@ -78,13 +79,17 @@ public sealed class Ruleset
     public string Version { get; }
     public string Sha256 { get; }
     public IReadOnlyList<Check> Checks { get; }
+    public IReadOnlyList<UncheckedRef> NotChecked { get; }
+    readonly IReadOnlyDictionary<string, string> categoryAliases;
 
-    Ruleset(string name, string version, string sha256, IReadOnlyList<Check> checks)
+    Ruleset(string name, string version, string sha256, IReadOnlyList<Check> checks, IReadOnlyList<UncheckedRef> notChecked, IReadOnlyDictionary<string, string> aliases)
     {
         Name = name;
         Version = version;
         Sha256 = sha256;
         Checks = checks;
+        NotChecked = notChecked;
+        categoryAliases = aliases;
     }
 
     public static Ruleset Load(string path) => Parse(File.ReadAllText(path));
@@ -124,7 +129,9 @@ public sealed class Ruleset
                 throw Error($"{c.Id}: invalid severity {c.Severity}");
 
             if (c.SeverityMode is not ("advisory" or "minimum" or "fixed") || c.Categories is null ||
-                c.Categories.Any(category => !RuleTaxonomy.IsCacheable(category) || RuleTaxonomy.Canonical(category) != category))
+                c.Categories.Any(category => category is null || category.Length > 128 ||
+                    !Regex.IsMatch(category, "^[a-z0-9]+(?:-[a-z0-9]+)*$", RegexOptions.CultureInvariant) ||
+                    category.StartsWith("std-", StringComparison.Ordinal) || RuleTaxonomy.Canonical(category) != category))
                 throw Error($"{c.Id}: invalid severityMode or categories");
 
             var files = new List<string>();
@@ -155,8 +162,15 @@ public sealed class Ruleset
         if (doc.NotChecked.Any(n => string.IsNullOrWhiteSpace(n.Ref) || string.IsNullOrWhiteSpace(n.Reason)))
             throw Error("every notChecked entry needs a ref and a reason");
 
+        var categories = checks.SelectMany(check => check.Source.Categories).ToHashSet(StringComparer.Ordinal);
+        if (doc.CategoryAliases is null || doc.CategoryAliases.Any(alias =>
+            alias.Key.Length > 128 || !Regex.IsMatch(alias.Key, "^[a-z0-9]+(?:-[a-z0-9]+)*$", RegexOptions.CultureInvariant) ||
+            alias.Key.StartsWith("std-", StringComparison.Ordinal) || RuleTaxonomy.IsCacheable(alias.Key) ||
+            categories.Contains(alias.Key) || alias.Value is null || !categories.Contains(alias.Value)))
+            throw Error("categoryAliases must map new identifiers directly to declared canonical categories");
+
         string sha = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
-        return new Ruleset(doc.Name, doc.Version, sha, checks);
+        return new Ruleset(doc.Name, doc.Version, sha, checks, doc.NotChecked, doc.CategoryAliases);
     }
 
     internal (Severity Effective, string[] Rules) ApplySeverity(Severity model, string category, IEnumerable<string> reportedRules, FileDiff file)
@@ -169,6 +183,15 @@ public sealed class Ruleset
         Severity effective = policies.Max(c => c.Source.SeverityMode == "minimum" && model > c.Severity ? model : c.Severity);
         return (effective, [.. policies.Select(c => c.Id).Order(StringComparer.Ordinal)]);
     }
+
+    internal bool ContainsRule(string rule) => Checks.Any(check => string.Equals(check.Id, rule, StringComparison.Ordinal));
+
+    internal string CanonicalCategory(string rule, string source) =>
+        categoryAliases.TryGetValue(rule.ToLowerInvariant(), out string? category) ? category : RuleTaxonomy.Canonical(rule, source);
+
+    internal bool ContainsAlias(string rule) => categoryAliases.ContainsKey(rule);
+
+    internal bool ContainsCategory(string category) => Checks.Any(check => check.Source.Categories.Contains(category, StringComparer.Ordinal));
 
     // Applicable checks, highest severity first; ties keep file order, so pass 1 always gets the most important ones.
     public List<Check> Select(IReadOnlyCollection<FileDiff> batch) =>
