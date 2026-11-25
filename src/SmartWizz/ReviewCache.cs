@@ -15,19 +15,12 @@ internal sealed class ReviewCache(string database, byte[] key, string cacheKey) 
 
     public static async Task<ReviewCache?> OpenAsync(Options opt, string scope, string diff, CancellationToken ct)
     {
-        string? encoded = Environment.GetEnvironmentVariable("SMARTWIZZ_HISTORY_KEY");
-        if (string.IsNullOrEmpty(encoded)) return null;
-        byte[] key = Convert.FromBase64String(encoded);
+        string directory = await HistoryKey.SafeDirectoryAsync(opt.Repo, ct);
+        byte[]? key = HistoryKey.Load(directory, opt.InitializeHistory);
+        if (key is null) return null;
         try
         {
-            if (key.Length != 32) return null;
             string root = await GitDiff.RepositoryRootAsync(opt.Repo, ct);
-            string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (string.IsNullOrWhiteSpace(local)) return null;
-            string directory = Path.GetFullPath(Path.Combine(local, "smartwizz", "data"));
-            string relative = Path.GetRelativePath(root, directory);
-            if (!Path.IsPathRooted(relative) && relative != ".." &&
-                !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)) return null;
             string revision = await GitDiff.ResolveShaAsync(opt.Repo, "HEAD", ct);
             string identity = FindingStore.Hash(key, "review-cache-v1", typeof(ReviewCache).Module.ModuleVersionId.ToString(),
                 root, scope, revision, opt.Staged ? "staged" : "working", diff);
