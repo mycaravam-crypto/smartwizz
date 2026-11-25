@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Spectre.Console;
 
 namespace SmartWizz;
 
@@ -18,22 +19,18 @@ public sealed class ConsoleProgress : IProgress<ReviewProgress>, IDisposable
 
     readonly TextWriter _writer;
     readonly bool _enabled;
-    readonly bool _interactive;
     readonly object _gate = new();
-    readonly Timer? _timer;
+    readonly IAnsiConsole? _console;
     ReviewProgress? _current;
     long _requestStarted;
     int _spinnerIndex;
-    int _lastLength;
-    bool _rendered;
+    bool _disposed;
 
-    public ConsoleProgress(TextWriter writer, bool enabled, bool interactive = true)
+    public ConsoleProgress(TextWriter writer, bool enabled, bool interactive = true, IAnsiConsole? console = null)
     {
         _writer = writer;
         _enabled = enabled;
-        _interactive = interactive;
-        if (enabled && interactive)
-            _timer = new Timer(Heartbeat, null, Timeout.Infinite, Timeout.Infinite);
+        _console = interactive && console is not null && console.Profile.Capabilities.Interactive ? console : null;
     }
 
     public void Report(ReviewProgress value)
@@ -42,9 +39,10 @@ public sealed class ConsoleProgress : IProgress<ReviewProgress>, IDisposable
 
         lock (_gate)
         {
+            if (_disposed) return;
             if (value.TotalRequests == 0)
             {
-                _timer?.Change(Timeout.Infinite, Timeout.Infinite);
+
                 WriteLine("Reviewing: no reviewable files");
                 _current = null;
                 return;
@@ -56,25 +54,15 @@ public sealed class ConsoleProgress : IProgress<ReviewProgress>, IDisposable
                 {
                     _requestStarted = Stopwatch.GetTimestamp();
                     _spinnerIndex = 0;
-                    _timer?.Change(1000, 1000);
+
                 }
                 _current = value;
                 Render(value, active: true);
                 return;
             }
 
-            _timer?.Change(Timeout.Infinite, Timeout.Infinite);
             _current = value;
             Render(value, active: false);
-        }
-    }
-
-    void Heartbeat(object? state)
-    {
-        lock (_gate)
-        {
-            if (_current is { RequestActive: true } current)
-                Render(current, active: true);
         }
     }
 
@@ -88,12 +76,19 @@ public sealed class ConsoleProgress : IProgress<ReviewProgress>, IDisposable
             : $"{completed}/{value.TotalRequests} requests";
         string line = $"{value.Phase} [{bar}] {status} | {value.ReviewedFiles}/{value.TotalFiles} files";
 
-        if (_interactive)
+        // Use complete lines, even in rich mode: provider retries also write to stderr.
+        // Never leave the cursor on an unfinished line or overwrite diagnostics.
+        if (_console is not null)
         {
-            _writer.Write("\\r" + line.PadRight(_lastLength));
-            _writer.Flush();
-            _lastLength = line.Length;
-            _rendered = true;
+            var grid = new Grid();
+            grid.AddColumn();
+            grid.AddColumn();
+            grid.AddColumn();
+            grid.AddRow(
+                new Markup("[bold cyan]" + Markup.Escape(value.Phase) + "[/]"),
+                new Markup("[green]" + new string('=', filled) + "[/][grey]" + new string('-', BarWidth - filled) + "[/]"),
+                new Text($"{status} | {value.ReviewedFiles}/{value.TotalFiles} files"));
+            _console.Write(grid);
         }
         else
         {
@@ -103,19 +98,16 @@ public sealed class ConsoleProgress : IProgress<ReviewProgress>, IDisposable
 
     void WriteLine(string line)
     {
-        _writer.Write("\\r" + line.PadRight(_lastLength));
-        _writer.WriteLine();
+        _writer.WriteLine(line);
         _writer.Flush();
-        _lastLength = 0;
-        _rendered = false;
     }
 
     public void Dispose()
     {
-        _timer?.Dispose();
         lock (_gate)
         {
-            if (_rendered) _writer.WriteLine();
+            _disposed = true;
+            _current = null;
         }
     }
 }

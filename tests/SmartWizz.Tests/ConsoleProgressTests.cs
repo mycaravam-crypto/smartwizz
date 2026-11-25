@@ -16,6 +16,8 @@ public class ConsoleProgressTests
         Assert.Contains("request 1/4", rendered);
         Assert.Contains("1/4 requests", rendered);
         Assert.Contains("4/8 files", rendered);
+        Assert.DoesNotContain("\\r", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("\r", rendered.ReplaceLineEndings("\n"), StringComparison.Ordinal);
         Assert.EndsWith(Environment.NewLine, rendered);
     }
 
@@ -33,7 +35,19 @@ public class ConsoleProgressTests
         Assert.Contains("[....................]", rendered);
         Assert.Contains("request 1/2", rendered);
         Assert.Contains("1/2 requests", rendered);
+        Assert.DoesNotContain("\\r", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("\r", rendered.ReplaceLineEndings("\n"), StringComparison.Ordinal);
+        Assert.DoesNotContain("\u001b", rendered, StringComparison.Ordinal);
         Assert.Equal(2, rendered.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries).Length);
+    }
+
+    [Fact]
+    public void Empty_review_has_one_clean_line()
+    {
+        using var output = new StringWriter();
+        using var progress = new ConsoleProgress(output, enabled: true, interactive: false);
+        progress.Report(new ReviewProgress("Reviewing", 0, 0, 0, 0));
+        Assert.Equal("Reviewing: no reviewable files" + Environment.NewLine, output.ToString());
     }
 
     [Fact]

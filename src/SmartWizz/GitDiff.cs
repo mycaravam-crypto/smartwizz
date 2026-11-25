@@ -47,7 +47,7 @@ public static partial class GitDiff
         ct.ThrowIfCancellationRequested();
         if (process.ExitCode != 0)
             throw new SmartWizzException(FailureKind.Git, $"git status failed ({process.ExitCode}): {(await error).Trim()}");
-        return [.. output.Split('\n').Where(l => l.StartsWith("?? ", StringComparison.Ordinal)).Select(l => l[3..])];
+        return [.. output.ReplaceLineEndings("\n").Split('\n').Where(l => l.StartsWith("?? ", StringComparison.Ordinal)).Select(l => l[3..])];
     }
 
     static async Task<string> RunDiffAsync(string repo, IReadOnlyList<string> selection, int contextLines, CancellationToken ct)
@@ -192,7 +192,7 @@ public static partial class GitDiff
         int newLine = 0;
         bool inHunk = false;
 
-        foreach (string line in diff.Split('\n'))
+        foreach (string line in diff.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
         {
             if (line.StartsWith("diff --git "))
             {

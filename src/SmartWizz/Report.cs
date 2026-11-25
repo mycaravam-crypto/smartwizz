@@ -1,3 +1,4 @@
+using Spectre.Console;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -75,6 +76,31 @@ public static class Report
             string fix = f.SuggestedFix is { } s ? $" Suggested fix: {OneLine(s)}" : "";
             w.WriteLine($"{f.FilePath}:{f.StartLine}:{level}: {OneLine(f.Title)} ({f.RuleId}): {OneLine(f.Message)}{fix} [fp {f.Fingerprint}]");
         }
+    }
+
+    // Treat model-generated text as data, never as Spectre markup or terminal commands.
+    static string Safe(string value) => string.Concat(value.Where(c => !char.IsControl(c) || c == '\n' || c == '\t'));
+
+    public static void WriteRichConsole(ReviewResult r, IAnsiConsole console)
+    {
+        Table table = new Table().Border(TableBorder.Rounded);
+        table.AddColumn("[bold]Findings[/]");
+        table.AddColumn("[bold]Reviewed[/]");
+        table.AddColumn("[bold]Skipped[/]");
+        table.AddColumn("[bold]Rejected[/]");
+        table.AddRow(
+            new Markup($"[{(r.Findings.Count == 0 ? "green" : "yellow")}]{r.Findings.Count}[/]"),
+            new Text(r.ReviewedFiles.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            new Text(r.SkippedFiles.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            new Text(r.Rejected.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        console.Write(new Rule("[bold cyan]SmartWizz | Code review[/]"));
+        console.Write(table);
+        if (r.ReviewedFiles == 0)
+            console.Write(new Text("No reviewable files."));
+        // Preserve all existing report details and the familiar summary for terminal users.
+        using var details = new StringWriter(System.Globalization.CultureInfo.InvariantCulture);
+        WriteConsole(r, details);
+        console.Write(new Text(Safe(details.ToString())));
     }
 
     public static void WriteConsole(ReviewResult r, TextWriter w)

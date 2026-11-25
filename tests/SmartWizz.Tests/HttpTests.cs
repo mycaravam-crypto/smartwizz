@@ -222,7 +222,7 @@ public class GuidelinesTests
         Assert.Equal("base", Review.SystemPrompt("base", null));
         string p = Review.SystemPrompt("base", "  - No magic numbers.\n");
         Assert.StartsWith("base", p);
-        Assert.Contains("<standard>\n- No magic numbers.\n</standard>", p);
+        Assert.Contains("<standard>\n- No magic numbers.\n</standard>", p.ReplaceLineEndings("\n"));
         Assert.Contains("standard-<short-kebab-rule-name>", p);
     }
 
