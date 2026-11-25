@@ -22,11 +22,18 @@ public class FindingStoreTests
             FindingStore.Record(database, key, "repo-b", "scope", "revision", third);
             Assert.Equal(0, third.KnownFindings);
             Assert.NotEqual(second.PersistentFindingIds["fp"], third.PersistentFindingIds["fp"]);
-            using var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = database, Pooling = false }.ToString());
-            db.Open();
-            using SqliteCommand query = db.CreateCommand();
-            query.CommandText = "SELECT COUNT(*) FROM findings";
-            Assert.Equal(2L, (long)query.ExecuteScalar()!);
+            using (var db = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = database,
+                Pooling = false,
+            }.ToString()))
+            {
+                db.Open();
+                using SqliteCommand query = db.CreateCommand();
+                query.CommandText = "SELECT COUNT(*) FROM findings";
+                Assert.Equal(2L, (long)query.ExecuteScalar()!);
+            }
+            // Close native SQLite handles before inspecting the file on Windows.
             string bytes = System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(database));
             Assert.DoesNotContain("PRIVATE_SOURCE_SENTINEL", bytes, StringComparison.Ordinal);
             Assert.DoesNotContain("PRIVATE_MODEL_SENTINEL", bytes, StringComparison.Ordinal);
