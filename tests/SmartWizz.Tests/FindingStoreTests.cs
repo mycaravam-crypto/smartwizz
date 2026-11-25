@@ -51,6 +51,64 @@ public class FindingStoreTests
         return result;
     }
 
+    [Fact]
+    public void Legacy_broad_rule_is_reconciled_at_verified_credential_anchor()
+    {
+        string directory = Directory.CreateTempSubdirectory().FullName;
+        string database = Path.Combine(directory, "history.db");
+        byte[] key = new byte[32];
+        try
+        {
+            const string source = "before\nstring Password = \"FAKE_TEST_SECRET\";\nafter";
+            ReviewResult old = Make("std-hardcoded-config", 59);
+            old.FindingAnchors["fp"] = source;
+            FindingStore.Record(database, key, "repo", "scope", "revision", old);
+            ReviewResult current = Make("hardcoded-config", 59);
+            current.FindingAnchors["fp"] = source;
+            current.FindingCategories["fp"] = "hardcoded-credential";
+            FindingStore.Record(database, key, "repo", "scope", "revision", current);
+            Assert.Equal(1, current.KnownFindings);
+            using var db = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = database,
+                Pooling = false,
+            }.ToString());
+            db.Open();
+            using SqliteCommand query = db.CreateCommand();
+            query.CommandText = "SELECT observations FROM findings";
+            Assert.Equal(2L, (long)query.ExecuteScalar()!);
+            query.CommandText = "SELECT COUNT(*) FROM findings";
+            Assert.Equal(1L, (long)query.ExecuteScalar()!);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Theory]
+    [InlineData("std-injection", """return $"SELECT * FROM T WHERE Id = {id}";""", "sql-injection")]
+    [InlineData("std-injection", """Process.Start("cmd", input);""", "std-injection")]
+    [InlineData("std-hardcoded-config", """string Password = "FAKE_TEST_SECRET";""", "hardcoded-credential")]
+    [InlineData("hardcoded-config", """string Password = config["password"];""", "hardcoded-config")]
+    [InlineData("std-hardcoded-config", """string Endpoint = "http://example.test";""", "std-hardcoded-config")]
+    public void Broad_rules_require_source_evidence(string rule, string source, string expected) =>
+        Assert.Equal(expected, RuleTaxonomy.Canonical(rule, source));
+
+    [Fact]
+    public void Credential_redaction_removes_direct_literal_from_model_text()
+    {
+        var file = new FileDiff { Path = "test.cs" };
+        file.AddedLines.Add(1);
+        file.NewLines.Add(1, """string Password = "FAKE_TEST_SECRET";""");
+        var files = new Dictionary<string, FileDiff>
+        {
+            [file.Path] = file,
+        };
+        Finding finding = Assert.Single(Review.Parse("""
+            {"findings":[{"ruleId":"hardcoded-secret","severity":"high","title":"FAKE_TEST_SECRET","message":"Password FAKE_TEST_SECRET exposed","filePath":"test.cs","startLine":1,"confidence":0.95,"suggestedFix":"remove FAKE_TEST_SECRET"}]}
+            """, files, 0.5, []));
+        Assert.DoesNotContain("FAKE_TEST_SECRET", finding.Title + finding.Message + finding.SuggestedFix, StringComparison.Ordinal);
+        Assert.Contains("[REDACTED]", finding.Message);
+    }
+
     [Theory]
     [InlineData("hardcoded-password", "hardcoded-credential")]
     [InlineData("hardcoded-config", "hardcoded-config")]
