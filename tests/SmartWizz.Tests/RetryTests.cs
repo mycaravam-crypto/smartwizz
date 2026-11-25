@@ -40,7 +40,7 @@ public class RetryTests
 
         Completion c = await new Provider(new HttpClient(h), Cfg(), null, rec.Log, rec.Delay).CompleteAsync("s", "u", default);
 
-        Assert.Equal(new Completion("ok", "primary"), c);
+        Assert.Equal(new Completion("ok", "primary", Attempts: 3), c);
         Assert.Equal([TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(4)], rec.Waits);
         Assert.Contains("retry 1/2 in 2s", rec.Log.ToString());
     }
@@ -67,7 +67,7 @@ public class RetryTests
 
         Completion c = await new Provider(new HttpClient(h), Cfg("backup"), null, rec.Log, rec.Delay).CompleteAsync("s", "u", default);
 
-        Assert.Equal(new Completion("ok", "backup"), c);
+        Assert.Equal(new Completion("ok", "backup", Attempts: 4), c);
         Assert.Equal(["primary", "primary", "primary", "backup"], h.Requests.Select(r => ModelOf(r.Body)));
         Assert.Contains("primary unavailable, falling back to backup", rec.Log.ToString());
     }

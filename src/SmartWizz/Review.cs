@@ -34,13 +34,28 @@ public sealed class CheckCounts
 
 // A logical completion includes retries, backoff and fallback attempts; not server-only inference time.
 public sealed record ReviewRequestTiming(int Request, string Model, double ElapsedMilliseconds, int Files,
-    int SystemCharacters, int UserCharacters, int? PromptTokens, int? CompletionTokens, int AcceptedFindings, bool StandardsOnly);
+    int SystemCharacters, int UserCharacters, int? PromptTokens, int? CompletionTokens, int AcceptedFindings, bool StandardsOnly, int Attempts = 1, int? ReasoningTokens = null);
 
 public sealed class ReviewResult
 {
     public int ReviewedFiles { get; set; }
+    public int MaxParallelRequests { get; set; } = 1;
+    public double? EndToEndMilliseconds { get; set; }
     public double? ReviewElapsedMilliseconds { get; set; }
     public List<ReviewRequestTiming> RequestTimings { get; } = [];
+    public int RawDetections { get; set; }
+    public int DuplicateDetections => Math.Max(0, RawDetections - Findings.Count);
+    public int? KnownFindings { get; set; }
+    public double? HistoryElapsedMilliseconds { get; set; }
+    public bool CacheHit { get; set; }
+    public long? CacheCreatedUnixSeconds { get; set; }
+    public double? CacheLookupMilliseconds { get; set; }
+    public int CachedRequests { get; set; }
+    public Dictionary<string, string[]> FindingSourceRules { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, string> FindingCategories { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, string> FindingAnchors { get; } = new(StringComparer.Ordinal);
+    public Dictionary<string, string> PersistentFindingIds { get; } = new(StringComparer.Ordinal);
+    public Dictionary<string, int[]> FindingSourceRequests { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, int> FindingRequests { get; } = new(StringComparer.Ordinal);
     // Models that actually answered, in first-use order; more than one means a fallback was used.
     public List<string> Models { get; } = [];
@@ -66,6 +81,8 @@ public static partial class Review
     // a narrowed diff no longer shares the prompt prefix of pass 1, so servers with prefix caching process it again.
     const double NarrowBelow = 0.5;
 
+    sealed record BatchOutcome(List<Finding> Findings, List<string> Checks, List<string> Rejected, List<ReviewRequestTiming> Timings);
+
     public static async Task<ReviewResult> RunAsync(
         List<FileDiff> files, ReviewConfig cfg, Provider provider, ReviewPrompts prompts, CancellationToken ct, Ruleset? ruleset = null, IProgress<ReviewProgress>? progress = null)
     {
@@ -73,6 +90,7 @@ public static partial class Review
         var origins = new Dictionary<Finding, int>(ReferenceEqualityComparer.Instance);
         var result = new ReviewResult
         {
+            MaxParallelRequests = cfg.MaxParallelRequests,
             RulesetName = ruleset?.Name,
             RulesetVersion = ruleset?.Version,
             RulesetSha256 = ruleset?.Sha256,
@@ -112,20 +130,40 @@ public static partial class Review
             : batches.Sum(b => Ruleset.Passes(ruleset.Select(b), cfg.MaxChecksPerRequest).Count);
         progress?.Report(new ReviewProgress("Reviewing", 0, totalRequests, 0, totalFiles));
 
-        var all = new List<Finding>();
-        long promptTokens = 0;
-        long completionTokens = 0;
-        bool completeUsage = batches.Count > 0;
-        // Sequential on purpose: keeps request rate and provider quota use predictable.
-        foreach (List<FileDiff> b in batches)
+        // One worker per independent batch, bounded by configuration. Passes inside a batch stay sequential.
+        // Assign request IDs by plan order, not completion order, for reproducible reports.
+        int[] offsets = new int[batches.Count];
+        int offset = 0;
+        for (int i = 0; i < batches.Count; i++)
         {
+            offsets[i] = offset;
+            offset += ruleset is null ? 1 : Ruleset.Passes(ruleset.Select(batches[i]), cfg.MaxChecksPerRequest).Count;
+        }
+        var outcomes = new BatchOutcome?[batches.Count];
+        int completed = 0, reviewed = 0, active = 0;
+        object progressGate = new();
+        void Notify()
+        {
+            progress?.Report(new ReviewProgress("Reviewing", completed, totalRequests, reviewed, totalFiles, active > 0, active));
+        }
+
+        await Parallel.ForEachAsync(Enumerable.Range(0, batches.Count),
+            new ParallelOptions { MaxDegreeOfParallelism = cfg.MaxParallelRequests, CancellationToken = ct },
+            async (index, token) =>
+        {
+            List<FileDiff> b = batches[index];
+            var localFindings = new List<Finding>();
+            var localChecks = new List<string>();
+            var rejected = new List<string>();
+            var timings = new List<ReviewRequestTiming>();
+            int request = offsets[index];
             // Every pass of a batch starts with the same system prompt and diff block (same nonce), and puts its own
             // task last, so local servers with prefix caching (llama.cpp, vLLM, Ollama) process the diff only once.
             string nonce = NewNonce();
             string fullDiff = BuildDiff(b, files.Select(f => f.Path), nonce);
             if (ruleset is null)
             {
-                all.AddRange(await AskAsync(fullDiff, prompts.Review, b, null, false));
+                localFindings.AddRange(await AskAsync(fullDiff, prompts.Review, b, null, false));
             }
             else
             {
@@ -145,44 +183,109 @@ public static partial class Review
                             (sent, diff) = (relevant, BuildDiff(relevant, null, nonce));
                     }
                     string task = Ruleset.BuildPrompt(general ? prompts.Review : prompts.Standards, checks, general);
-                    foreach (Ruleset.Check check in checks) result.Checks![check.Id].Sent++;
-                    all.AddRange(await AskAsync(diff, task, sent, [.. checks.Select(c => c.Id)], !general));
+                    foreach (Ruleset.Check check in checks) localChecks.Add(check.Id);
+                    localFindings.AddRange(await AskAsync(diff, task, sent, [.. checks.Select(c => c.Id)], !general));
                 }
             }
-            result.ReviewedFiles += b.Count;
-            progress?.Report(new ReviewProgress("Reviewing", result.Requests, totalRequests, result.ReviewedFiles, totalFiles));
+
+            outcomes[index] = new BatchOutcome(localFindings, localChecks, rejected, timings);
+            lock (progressGate)
+            {
+                reviewed += b.Count;
+                Notify();
+            }
 
             async Task<List<Finding>> AskAsync(string diff, string task, List<FileDiff> sent, List<string>? standardIds, bool standardsOnly)
             {
                 string userMessage = BuildUserMessage(diff, task);
-                result.SystemPromptCharacters += prompts.System.Length;
-                result.UserPromptCharacters += userMessage.Length;
-                result.Requests++;
-                progress?.Report(new ReviewProgress("Reviewing", result.Requests - 1, totalRequests, result.ReviewedFiles, totalFiles, true));
-                // A standards-only pass may only use the IDs it was sent; elsewhere ruleId stays free (bug categories).
+                int id = ++request;
                 OutputSchema schema = FindingsSchema(sent.Select(f => f.Path), standardsOnly ? standardIds : null, cfg.SuggestFixes);
-                long requestStarted = Stopwatch.GetTimestamp();
-                Completion reply = await provider.CompleteAsync(prompts.System, userMessage, ct, schema);
-                double elapsed = Stopwatch.GetElapsedTime(requestStarted).TotalMilliseconds;
-                if (reply.PromptTokens is { } inputTokens && reply.CompletionTokens is { } outputTokens)
+                lock (progressGate)
                 {
-                    promptTokens += inputTokens;
-                    completionTokens += outputTokens;
+                    active++;
+                    Notify();
                 }
-                else completeUsage = false;
-                if (!result.Models.Contains(reply.Model)) result.Models.Add(reply.Model);
-                List<Finding> findings = Parse(reply.Content, sent.ToDictionary(f => f.Path), cfg.MinConfidence, result.Rejected, standardIds, standardsOnly);
-                progress?.Report(new ReviewProgress("Reviewing", result.Requests, totalRequests, result.ReviewedFiles, totalFiles));
-                result.RequestTimings.Add(new(result.Requests, reply.Model, elapsed, sent.Count,
-                    prompts.System.Length, userMessage.Length, reply.PromptTokens, reply.CompletionTokens, findings.Count, standardsOnly));
-                foreach (Finding finding in findings) origins.Add(finding, result.Requests);
+                long started = Stopwatch.GetTimestamp();
+                Completion reply = await provider.CompleteAsync(prompts.System, userMessage, token, schema);
+                double elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                List<Finding> findings = Parse(reply.Content, sent.ToDictionary(f => f.Path), cfg.MinConfidence, rejected, standardIds, standardsOnly);
+                timings.Add(new(id, reply.Model, elapsed, sent.Count, prompts.System.Length, userMessage.Length,
+                    reply.PromptTokens, reply.CompletionTokens, findings.Count, standardsOnly, reply.Attempts, reply.ReasoningTokens));
+                foreach (Finding finding in findings)
+                    lock (origins) origins.Add(finding, id);
+                lock (progressGate)
+                {
+                    completed++;
+                    active--;
+                    Notify();
+                }
                 return findings;
             }
-        }
+        });
 
-        result.Findings = Dedupe(all);
+        // Merge only after every worker succeeds, in original batch order.
+        var all = new List<Finding>();
+        long promptTokens = 0, completionTokens = 0;
+        bool completeUsage = batches.Count > 0;
+        foreach (BatchOutcome? item in outcomes)
+        {
+            BatchOutcome outcome = item!;
+            all.AddRange(outcome.Findings);
+            result.Rejected.AddRange(outcome.Rejected);
+            foreach (string id in outcome.Checks) result.Checks![id].Sent++;
+            foreach (ReviewRequestTiming timing in outcome.Timings)
+            {
+                result.RequestTimings.Add(timing);
+                result.Requests++;
+                result.SystemPromptCharacters += timing.SystemCharacters;
+                result.UserPromptCharacters += timing.UserCharacters;
+                if (!result.Models.Contains(timing.Model)) result.Models.Add(timing.Model);
+                if (timing.PromptTokens is { } input && timing.CompletionTokens is { } output)
+                {
+                    promptTokens += input;
+                    completionTokens += output;
+                }
+                else completeUsage = false;
+            }
+        }
+        result.ReviewedFiles = totalFiles;
+        result.RawDetections = all.Count;
+        // Within a run, only equivalent categories at the same validated location merge.
+        // Keep legacy fingerprints on representatives for checkpoint compatibility.
+        var byPath = files.ToDictionary(f => f.Path, StringComparer.Ordinal);
+        var representatives = all.GroupBy(f => (f.FilePath, f.StartLine, End: f.EndLine ?? f.StartLine,
+            Rule: RuleTaxonomy.Canonical(f.RuleId, byPath[f.FilePath].NewLines[f.StartLine])))
+            .Select(g => (Finding: g.OrderByDescending(f => f.Severity).ThenByDescending(f => f.Confidence).First(),
+                Requests: g.Select(f => origins[f]).Distinct().Order().ToArray(),
+                Rules: g.Select(f => f.RuleId).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
+                Category: g.Key.Rule)).ToList();
+        // Legacy fingerprint collisions can occur on identical statements in different locations.
+        // Disambiguate those instances rather than silently discarding distinct defects.
+        var collisions = representatives.GroupBy(f => f.Finding.Fingerprint).Where(g => g.Count() > 1)
+            .Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
+        result.Findings = [];
+        foreach ((Finding representative, int[] requests, string[] rules, string category) in representatives)
+        {
+            Finding finding = collisions.Contains(representative.Fingerprint)
+                ? representative with
+                {
+                    Fingerprint = Fingerprint(representative.RuleId, representative.FilePath,
+                        $"{representative.Fingerprint}:{representative.StartLine}:{representative.EndLine}")
+                }
+                : representative;
+            result.Findings.Add(finding);
+            result.FindingRequests.Add(finding.Fingerprint, origins[representative]);
+            result.FindingSourceRequests.Add(finding.Fingerprint, requests);
+            result.FindingSourceRules.Add(finding.Fingerprint, rules);
+            result.FindingCategories.Add(finding.Fingerprint, category);
+        }
+        result.Findings = [.. result.Findings.OrderByDescending(f => f.Severity).ThenBy(f => f.FilePath, StringComparer.Ordinal).ThenBy(f => f.StartLine)];
         foreach (Finding finding in result.Findings)
-            result.FindingRequests.Add(finding.Fingerprint, origins[finding]);
+        {
+            FileDiff file = byPath[finding.FilePath];
+            // Include immediate visible context to distinguish repeated statements.
+            result.FindingAnchors.Add(finding.Fingerprint, SourceAnchor(file, finding.StartLine));
+        }
         foreach (Finding f in result.Findings)
             if (result.Checks?.TryGetValue(f.RuleId, out CheckCounts? counts) == true) counts.Findings++;
         if (completeUsage)
@@ -193,6 +296,10 @@ public static partial class Review
         result.ReviewElapsedMilliseconds = Stopwatch.GetElapsedTime(reviewStarted).TotalMilliseconds;
         return result;
     }
+
+    internal static string SourceAnchor(FileDiff file, int startLine) =>
+        string.Join("\n", Enumerable.Range(Math.Max(1, startLine - 1), startLine == 1 ? 2 : 3)
+            .Select(line => file.NewLines.TryGetValue(line, out string? value) ? value.Trim() : ""));
 
     // Fills prompts/review-format.md. [[fix:...]] spans stay only when fixes are wanted: suggestedFix is the longest
     // output field, and output tokens are the slow part on local hardware.
@@ -303,10 +410,11 @@ public static partial class Review
 
             HashSet<string>? allowed = standardIds is null ? null : new(standardIds, StringComparer.OrdinalIgnoreCase);
             var list = new List<Finding>();
+            string[] literals = RuleTaxonomy.CredentialLiterals(files.Values.SelectMany(file => file.NewLines.Values));
             foreach (JsonElement e in arr.EnumerateArray())
             {
-                Finding? f = Validate(e, files, minConfidence, allowed, standardsOnly, out string? reason);
-                if (f is null) rejected.Add(reason);
+                Finding? f = Validate(e, files, minConfidence, allowed, standardsOnly, literals, out string? reason);
+                if (f is null) rejected.Add(RuleTaxonomy.Redact(reason, literals));
                 else list.Add(f);
             }
             return list;
@@ -314,7 +422,7 @@ public static partial class Review
     }
 
     static Finding? Validate(JsonElement e, IReadOnlyDictionary<string, FileDiff> files, double minConfidence,
-        HashSet<string>? standardIds, bool standardsOnly, out string reason)
+        HashSet<string>? standardIds, bool standardsOnly, string[] literals, out string reason)
     {
         reason = "";
         if (e.ValueKind != JsonValueKind.Object) return Reject(out reason, "finding is not an object");
@@ -334,7 +442,17 @@ public static partial class Review
         Severity? sev = ParseSeverity(Str("severity"));
 
         if (ruleId is null || title is null || message is null || path is null || start is null || conf is null || sev is null)
-            return Reject(out reason, "missing or invalid field");
+        {
+            List<string> fields = [];
+            if (ruleId is null) fields.Add("ruleId");
+            if (title is null) fields.Add("title");
+            if (message is null) fields.Add("message");
+            if (path is null) fields.Add("filePath");
+            if (start is null) fields.Add("startLine");
+            if (conf is null) fields.Add("confidence");
+            if (sev is null) fields.Add("severity");
+            return Reject(out reason, "missing or invalid field: " + string.Join(", ", fields));
+        }
         if (!files.TryGetValue(path, out FileDiff? file))
             return Reject(out reason, $"{path}: file not in reviewed diff");
         if (!file.AddedLines.Contains(start.Value) || !file.NewLines.TryGetValue(start.Value, out string? startText))
@@ -355,8 +473,10 @@ public static partial class Review
             ruleId = canonical;
         }
         // Optional: a malformed suggestion never costs the finding itself.
-        string? fix = e.TryGetProperty("suggestedFix", out JsonElement s) && s.ValueKind == JsonValueKind.String ? CleanCode(s.GetString()!) : null;
-        return new Finding(ruleId, sev.Value, Cap(Sanitize(title, false), 200), Cap(Sanitize(message, true), 4000), path, start.Value,
+        string? fix = e.TryGetProperty("suggestedFix", out JsonElement s) && s.ValueKind == JsonValueKind.String ? CleanCode(RuleTaxonomy.Redact(s.GetString()!, literals)) : null;
+        ruleId = RuleTaxonomy.Redact(ruleId, literals);
+        return new Finding(ruleId, sev.Value, Cap(Sanitize(RuleTaxonomy.Redact(title, literals), false), 200),
+            Cap(Sanitize(RuleTaxonomy.Redact(message, literals), true), 4000), path, start.Value,
             end == start ? null : end, conf.Value, Fingerprint(ruleId, path, startText), fix);
     }
 

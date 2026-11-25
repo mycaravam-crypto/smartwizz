@@ -27,8 +27,21 @@ public static class Report
         r.RulesetSha256,
         r.Requests,
         r.ReviewElapsedMilliseconds,
+        r.EndToEndMilliseconds,
+        r.MaxParallelRequests,
         r.RequestTimings,
         r.FindingRequests,
+        r.FindingSourceRequests,
+        r.RawDetections,
+        r.DuplicateDetections,
+        r.KnownFindings,
+        r.HistoryElapsedMilliseconds,
+        r.CacheHit,
+        r.CacheCreatedUnixSeconds,
+        r.CacheLookupMilliseconds,
+        r.CachedRequests,
+        r.FindingSourceRules,
+        r.PersistentFindingIds,
         r.SystemPromptCharacters,
         r.UserPromptCharacters,
         r.PromptTokens,
@@ -87,6 +100,14 @@ public static class Report
     static string Duration(double milliseconds) =>
         FormattableString.Invariant($"{milliseconds / 1000:0.00}s");
 
+    static string CacheSummary(ReviewResult r)
+    {
+        string age = r.CacheCreatedUnixSeconds is { } created
+            ? FormattableString.Invariant($"; inspected {DateTimeOffset.FromUnixTimeSeconds(created):yyyy-MM-dd HH:mm:ss} UTC")
+            : "";
+        return $"Cache hit: {r.CachedRequests} request(s) avoided; historical metadata only{age}";
+    }
+
     static string? FindingTiming(ReviewResult r, Finding f)
     {
         if (!r.FindingRequests.TryGetValue(f.Fingerprint, out int request)) return null;
@@ -96,14 +117,16 @@ public static class Report
 
     static string? TimingSummary(ReviewResult r)
     {
-        if (r.ReviewElapsedMilliseconds is not { } elapsed) return null;
+        if (r.ReviewElapsedMilliseconds is not { } elapsed)
+            return r.CacheHit && r.EndToEndMilliseconds is { } cached ? $"Through report preparation: {Duration(cached)}" : null;
         double provider = r.RequestTimings.Sum(t => t.ElapsedMilliseconds);
-        string summary = $"Review phase: {Duration(elapsed)} | LLM calls: {Duration(provider)}";
-        if (r.RequestTimings.Count > 0)
+        string summary = $"Review phase: {Duration(elapsed)} | LLM calls: {Duration(provider)} cumulative";
+        if (r.RequestTimings.Count > 1)
         {
             ReviewRequestTiming slowest = r.RequestTimings.MaxBy(t => t.ElapsedMilliseconds)!;
             summary += $" | Avg: {Duration(provider / r.RequestTimings.Count)} | Slowest: #{slowest.Request} ({Duration(slowest.ElapsedMilliseconds)})";
         }
+        if (r.EndToEndMilliseconds is { } endToEnd) summary += $" | Through report preparation: {Duration(endToEnd)}";
         return summary;
     }
 
@@ -112,7 +135,7 @@ public static class Report
         foreach (ReviewRequestTiming t in r.RequestTimings)
         {
             string tokens = $"tokens in/out {t.PromptTokens?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "n/a"}/{t.CompletionTokens?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "n/a"}";
-            w.WriteLine(Safe($"Request #{t.Request}: {Duration(t.ElapsedMilliseconds)} | {t.Model} | {(t.StandardsOnly ? "standards" : "review")} | {t.Files} file(s) | {t.SystemCharacters + (long)t.UserCharacters} prompt chars | {tokens} | {t.AcceptedFindings} accepted before deduplication"));
+            w.WriteLine(Safe($"Request #{t.Request}: {Duration(t.ElapsedMilliseconds)} | {t.Model} | {(t.StandardsOnly ? "standards" : "review")} | {t.Files} file(s) | {t.SystemCharacters + (long)t.UserCharacters} prompt chars | {tokens} | {t.AcceptedFindings} accepted before deduplication | attempts {t.Attempts} | reasoning tokens {t.ReasoningTokens?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "n/a"} | effective output tok/s {(t.CompletionTokens is { } output && t.ElapsedMilliseconds > 0 ? FormattableString.Invariant($"{output * 1000 / t.ElapsedMilliseconds:0.0}") : "n/a")}"));
         }
     }
 
@@ -137,6 +160,13 @@ public static class Report
         if (r.RulesetName is not null)
             console.Write(new Text(Safe($"Ruleset: {r.RulesetName} {r.RulesetVersion}\n")));
         console.Write(new Text($"{r.Requests} request(s)\n"));
+        console.Write(new Text($"Detections: {r.RawDetections} | Duplicates merged: {r.DuplicateDetections}\n"));
+        if (r.KnownFindings is { } known) console.Write(new Text(r.CacheHit
+            ? $"Historical identities found: {known} (no new observations)\n"
+            : $"Previously observed: {known} | New: {r.PersistentFindingIds.Count - known}\n"));
+        if (r.CacheHit) console.Write(new Text(CacheSummary(r) + "\n"));
+        if (r.CacheLookupMilliseconds is { } lookup) console.Write(new Text($"Cache lookup: {Duration(lookup)}\n"));
+        if (r.HistoryElapsedMilliseconds is { } history) console.Write(new Text($"History: {Duration(history)}\n"));
         if (TimingSummary(r) is { } timingSummary)
             console.Write(new Text(timingSummary + "\n"));
 
@@ -161,9 +191,11 @@ public static class Report
                 body.AddRow(new Text(Safe(fix)));
             }
             body.AddRow(new Text(""));
-            body.AddRow(new Text(Safe($"Rule: {f.RuleId} | Confidence: {f.Confidence:P0} | fp {f.Fingerprint}")));
+            body.AddRow(new Text(Safe($"Rule: {f.RuleId} | Confidence: {FormattableString.Invariant($"{f.Confidence * 100:0}%")} | fp {f.Fingerprint}")));
             if (FindingTiming(r, f) is { } findingTiming)
                 body.AddRow(new Text(findingTiming));
+            if (r.PersistentFindingIds.TryGetValue(f.Fingerprint, out string? persistentId))
+                body.AddRow(new Text($"Finding ID: SW-{persistentId[..Math.Min(12, persistentId.Length)]}"));
             var panel = new Panel(body)
             {
                 Header = new PanelHeader($"[{color} bold]{f.Severity.ToString().ToUpperInvariant()}[/]"),
@@ -181,6 +213,13 @@ public static class Report
     {
         w.WriteLine(Summary(r));
         if (TimingSummary(r) is { } timingSummary) w.WriteLine(timingSummary);
+        w.WriteLine($"Detections: {r.RawDetections} | Duplicates merged: {r.DuplicateDetections}");
+        if (r.KnownFindings is { } known) w.WriteLine(r.CacheHit
+            ? $"Historical identities found: {known} (no new observations)"
+            : $"Previously observed: {known} | New: {r.PersistentFindingIds.Count - known}");
+        if (r.CacheHit) w.WriteLine(CacheSummary(r));
+        if (r.CacheLookupMilliseconds is { } lookup) w.WriteLine($"Cache lookup: {Duration(lookup)}");
+        if (r.HistoryElapsedMilliseconds is { } history) w.WriteLine($"History: {Duration(history)}");
         if (r.Models.Count > 0)
             w.WriteLine($"Reviewed by: {string.Join(", ", r.Models)}");
         if (r.RulesetName is not null)
@@ -200,6 +239,7 @@ public static class Report
             }
             w.WriteLine($"    ({f.RuleId}, confidence {f.Confidence:0.00}, fp {f.Fingerprint})");
             if (FindingTiming(r, f) is { } findingTiming) w.WriteLine("    " + findingTiming);
+            if (r.PersistentFindingIds.TryGetValue(f.Fingerprint, out string? persistentId)) w.WriteLine($"    Finding ID: {persistentId}");
         }
         if (r.SkippedFiles.Count > 0)
         {

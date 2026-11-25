@@ -400,3 +400,34 @@ dotnet test -c Release
 - `.editorconfig` encodes the mechanical rules of [`ENGINEERING_STANDARD.md`](ENGINEERING_STANDARD.md): explicit types unless obvious, no unused code, readonly fields.
 - Tests stub all HTTP and need no credentials. They make no live model or Azure DevOps calls.
 - One test starts a fake `git` (Linux only) to prove cancellation kills the git process.
+
+## Large PR performance
+
+Set `review.maxParallelRequests` to an integer from 1 to 8 (default 1). Independent file batches may overlap, while passes within a batch remain sequential. Start with 2 and compare against 1, 4 and 8 on the same immutable PR diff. Use `--verbose --json review.json` to capture timings, attempts, reasoning tokens when returned by the provider, and effective output throughput. Cumulative request time can exceed wall time with concurrency. Compare finding recall, severity and fingerprints as well as latency; do not increase concurrency if timeout or retry rates rise. Use separate report files outside the reviewed checkout. Existing contextLines, maxCharsPerRequest, maxChecksPerRequest and suggestFixes settings can be tuned independently. Changing review configuration may invalidate an existing incremental checkpoint scope.
+
+## Optional local finding history
+
+Run `smartwizz check --remember` to record metadata in LocalApplicationData/smartwizz/data/findings-v1.db. Provide a separate, stable, randomly generated 32-byte Base64 `SMARTWIZZ_HISTORY_KEY` environment variable (not the API key). Keep it outside the database, preferably in a user-approved secret store. A lost or rotated key creates a new identity namespace. The store uses HMAC-SHA-256 for repository identity, scope, file paths and code anchors. It stores only hashes, an allowlisted category, line ranges, severity, commit SHA, timestamps and observation counters. No model text, code, prompts or fixes are stored. The database is not encrypted: protect the directory with OS access controls and do not sync it externally. Delete the database while SmartWizz is not running to clear history. History is local to a checkout and review configuration; context changes or ambiguous repeated statements may create a new identity. Historical observations are advisory, not verified open/resolved status. History alone still runs a fresh review; no automatic suppression. Existing JSON/annotated-diff/checkpoint exports are separate and may contain sensitive code or text. Direct quoted credential assignments in visible C#-style source are best-effort redacted from finding text, not a guarantee that all secrets are detected. Historical aliases for broad standard rules are reconciled only at matching source anchors and line locations with supporting code evidence; this may replace old advisory persistent IDs with their canonical ID, while legacy publication/checkpoint fingerprints are unchanged. Local history defaults on after consent through an existing key, an explicit CLI enable flag or trusted user configuration. A missing key or storage failure leaves the review unchanged.
+
+### Optional exact-input local review cache
+
+```bash
+smartwizz check --remember --cache --verbose --fail-on medium
+```
+
+The separate LocalApplicationData/smartwizz/data/review-cache-v1.db stores only signed, allowlisted metadata (file ordinal, line range, rule ID, severity, confidence, counters). It contains no file paths, source, diff, descriptions, fixes, prompts or raw responses. It uses the same separately held history key; an HMAC includes the exact diff, checkout, HEAD, mode, configuration/prompt/ruleset scope and build identity. Entries expire after 24 hours and expired rows are removed on eligible writes. Use `--no-cache` to invalidate the matching existing cache entry and force a fresh inspection. Changing a model behind an unchanged endpoint/model alias cannot be detected automatically; do not use cache for release or mandatory security gates requiring fresh inspection. A cache hit reproduces metadata only, not original explanations, rule provenance, timing or check-coverage statistics. It retains finding severity and quality-gate exit codes, looks up existing finding identities read-only without recording a second detection in history and reports how many LLM requests were avoided. A review with any rejected or skipped findings/files, fallback model, unsupported rule ID, or ambiguous legacy fingerprint is not cached. Only local check/staged mode is supported; PR review, publication, checkpoint and annotated diff workflows do not reuse the cache. A cache error falls back to a new inspection. Delete the cache database while SmartWizz is not running to clear it. The cache does not encrypt metadata at rest; restrict access and do not synchronize the file externally.
+
+### Local storage defaults
+
+After storage consent, `smartwizz check` and `smartwizz check --staged` enable history and the exact-input metadata cache by default. Consent is an existing history key, an explicit `--remember` / `--cache` flag, or an explicit setting in trusted user configuration:
+
+```json
+{
+  "storage": {
+    "remember": true,
+    "cache": true
+  }
+}
+```
+
+CLI overrides take precedence. `--no-cache` invalidates the matching cache entry when available and forces a fresh inspection, `--no-remember` prevents history writes, and `--stateless` disables both. CI (CI environment variable present) and PR reviews do not use local storage. Annotated diff output always requires a fresh review. Local --fail-on defaults to fresh unless caching is explicitly enabled. Implicit repository configuration cannot authorize storage initialization. Windows can initialize a random 32-byte history key using user-scoped DPAPI after explicit authorization. The encrypted key is stored separately in history-key.dpapi; an existing SMARTWIZZ_HISTORY_KEY takes precedence and is not automatically imported. On other platforms supply the key via a secure environment source. Without a usable key, fall back to a fresh review. The metadata databases themselves are not encrypted. Cache expiry remains fixed at 24 hours; configurable retention is future work.

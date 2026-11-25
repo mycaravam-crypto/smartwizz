@@ -9,7 +9,7 @@ public sealed record ReviewProgress(
     int TotalRequests,
     int ReviewedFiles,
     int TotalFiles,
-    bool RequestActive = false);
+    bool RequestActive = false, int ActiveRequests = 0);
 
 /// <summary>Compact terminal progress written to stderr, leaving reports and machine-readable stdout untouched.</summary>
 public sealed class ConsoleProgress : IProgress<ReviewProgress>, IDisposable
@@ -79,7 +79,9 @@ public sealed class ConsoleProgress : IProgress<ReviewProgress>, IDisposable
         int completed = Math.Clamp(value.CompletedRequests, 0, value.TotalRequests);
         int filled = completed * BarWidth / value.TotalRequests;
         string bar = new string('#', filled) + new string('.', BarWidth - filled);
-        string status = active
+        string status = value.ActiveRequests > 1
+            ? $"{value.ActiveRequests} active | {completed}/{value.TotalRequests} requests"
+            : active
             ? $"{Spinner[_spinnerIndex++ % Spinner.Length]} request {completed + 1}/{value.TotalRequests} | {Stopwatch.GetElapsedTime(_requestStarted):m\\:ss}"
             : $"{completed}/{value.TotalRequests} requests";
         string line = $"{value.Phase} [{bar}] {status} | {value.ReviewedFiles}/{value.TotalFiles} files";

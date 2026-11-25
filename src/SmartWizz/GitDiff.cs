@@ -81,6 +81,13 @@ public static partial class GitDiff
         return stdout;
     }
 
+    public static async Task<string> RepositoryRootAsync(string repo, CancellationToken ct)
+    {
+        (int code, string output, _) = await RunGitAsync(["-C", repo, "rev-parse", "--show-toplevel"], ct);
+        if (code != 0) throw new SmartWizzException(FailureKind.Git, "cannot resolve repository root");
+        return Path.GetFullPath(output.TrimEnd('\r', '\n'));
+    }
+
     public static async Task<string> ResolveShaAsync(string repo, string headRef, CancellationToken ct)
     {
         var psi = new ProcessStartInfo("git") { RedirectStandardOutput = true, RedirectStandardError = true };
