@@ -180,6 +180,33 @@ public class FindingStoreTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
+    [Fact]
+    public void Attested_resolution_requires_full_scoped_id_and_audits_rediscovery()
+    {
+        string directory = Directory.CreateTempSubdirectory().FullName;
+        string database = Path.Combine(directory, "history.db");
+        byte[] key = new byte[32];
+        try
+        {
+            ReviewResult initial = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", "scope", "revision", initial);
+            string id = initial.PersistentFindingIds["fp"];
+            Assert.Throws<SmartWizzException>(() => FindingStore.ResolveAttested(database, "other", "scope", null, id, "revision", default));
+            Assert.Throws<SmartWizzException>(() => FindingStore.ResolveAttested(database, "repo", "scope", null, id[..12], "revision", default));
+            FindingStore.ResolveAttested(database, "repo", "scope", null, id, "revision", default);
+            Assert.Throws<SmartWizzException>(() => FindingStore.ResolveAttested(database, "repo", "scope", null, id, "revision", default));
+            ReviewResult rediscovered = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", "scope", "revision", rediscovered);
+            Assert.Equal("regressed", rediscovered.LocalFindingStates["fp"].Lifecycle);
+            using var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = database, Pooling = false }.ToString());
+            db.Open();
+            using SqliteCommand command = db.CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM finding_lifecycle_audit";
+            Assert.Equal(2L, (long)command.ExecuteScalar()!);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     static ReviewResult Make(string rule, int line)
     {
         var result = new ReviewResult();
