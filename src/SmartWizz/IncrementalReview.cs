@@ -1,3 +1,5 @@
+using Microsoft.Data.Sqlite;
+
 namespace SmartWizz;
 
 // System is shared by every review request. Review and Standards are task texts placed after the diff:
@@ -14,7 +16,7 @@ public static class IncrementalReview
         : GitDiff.RunUncommittedAsync(opt.Repo, contextLines, ct);
 
     public static async Task<ReviewRun> RunAsync(Options opt, ReviewCheckpoint? previous, ReviewConfig cfg, Provider provider,
-        ReviewPrompts prompts, string reviewScope, Ruleset? ruleset, TextWriter log, CancellationToken ct, IProgress<ReviewProgress>? progress = null)
+        ReviewPrompts prompts, string reviewScope, Ruleset? ruleset, TextWriter log, CancellationToken ct, IProgress<ReviewProgress>? progress = null, string? cacheModel = null)
     {
         if (opt.Staged || opt.Check)
         {
@@ -27,9 +29,40 @@ public static class IncrementalReview
                     foreach (string path in untracked)
                         log.WriteLine("  " + string.Concat(path.Where(c => !char.IsControl(c))));
             }
-            List<FileDiff> localFiles = GitDiff.Parse(await LocalDiffAsync(opt, cfg.ContextLines, ct));
-            ReviewResult localResult = await Review.RunAsync(localFiles, cfg, provider, prompts, ct, ruleset, progress);
-            return new ReviewRun(localPlan, localResult, null);
+            string diff = await LocalDiffAsync(opt, cfg.ContextLines, ct);
+            List<FileDiff> localFiles = GitDiff.Parse(diff);
+            ReviewCache? cache = null;
+            try
+            {
+                if (opt.Cache && !string.IsNullOrWhiteSpace(cacheModel))
+                {
+                    try
+                    {
+                        cache = await ReviewCache.OpenAsync(opt, reviewScope, diff, ct);
+                        if (cache?.Read(localFiles, cfg, ruleset, cacheModel, ct) is { } cached)
+                        {
+                            log.WriteLine("review cache hit: historical metadata, no new LLM inspection");
+                            return new ReviewRun(localPlan, cached, null);
+                        }
+                        log.WriteLine(cache is null ? "review cache unavailable: fresh inspection" : "review cache miss: fresh inspection");
+                    }
+                    catch (Exception e) when (CacheFailure(e))
+                    {
+                        cache?.Dispose();
+                        cache = null;
+                        log.WriteLine("warning: review cache unavailable; running fresh inspection");
+                    }
+                }
+
+                ReviewResult localResult = await Review.RunAsync(localFiles, cfg, provider, prompts, ct, ruleset, progress);
+                if (cache is not null && cacheModel is not null)
+                {
+                    try { cache.Write(localFiles, localResult, cacheModel, ct); }
+                    catch (Exception e) when (CacheFailure(e)) { log.WriteLine("warning: review cache write failed; review results are unaffected"); }
+                }
+                return new ReviewRun(localPlan, localResult, null);
+            }
+            finally { cache?.Dispose(); }
         }
 
         ReviewPlan plan = await ReviewPlan.DecideAsync(opt.Repo, opt.Head, opt.Since, opt.StateIn is not null, previous, reviewScope, opt.FullReview, ct);
@@ -47,6 +80,9 @@ public static class IncrementalReview
         List<Recheck> rechecks = await Revalidation.RecheckAsync(opt.Repo, headSha, candidates, cfg, provider, prompts.Revalidation, ct);
         return new ReviewRun(plan, result, ReviewCheckpoint.Advance(headSha, reviewScope, previous, result.Findings, rechecks));
     }
+
+    static bool CacheFailure(Exception e) => e is SqliteException or IOException or UnauthorizedAccessException or
+        FormatException or ArgumentException or System.Text.Json.JsonException or InvalidOperationException or SmartWizzException;
 
     // since..head also holds whatever merging the base brought in: only lines in the PR's own diff can be reported.
     // Re-checks keep the whole delta, because a fix can vanish from the PR diff (e.g. deleting a file the PR added).
