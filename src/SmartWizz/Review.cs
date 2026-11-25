@@ -46,6 +46,8 @@ public sealed class ReviewResult
     public int RawDetections { get; set; }
     public int DuplicateDetections => RawDetections - Findings.Count;
     public int? KnownFindings { get; set; }
+    internal Dictionary<string, string> FindingAnchors { get; } = new(StringComparer.Ordinal);
+    public Dictionary<string, string> PersistentFindingIds { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, int[]> FindingSourceRequests { get; } = new(StringComparer.Ordinal);
     public Dictionary<string, int> FindingRequests { get; } = new(StringComparer.Ordinal);
     // Models that actually answered, in first-use order; more than one means a fallback was used.
@@ -261,6 +263,15 @@ public static partial class Review
             result.FindingSourceRequests.Add(finding.Fingerprint, [.. groups.First(g => g.Contains(representative)).Select(f => origins[f]).Distinct().Order()]);
         }
         result.Findings = [.. result.Findings.OrderByDescending(f => f.Severity).ThenBy(f => f.FilePath, StringComparer.Ordinal).ThenBy(f => f.StartLine)];
+        var byPath = files.ToDictionary(f => f.Path, StringComparer.Ordinal);
+        foreach (Finding finding in result.Findings)
+        {
+            FileDiff file = byPath[finding.FilePath];
+            // Include immediate visible context to distinguish repeated statements.
+            string anchor = string.Join("\n", Enumerable.Range(Math.Max(1, finding.StartLine - 1), finding.StartLine == 1 ? 2 : 3)
+                .Select(line => file.NewLines.TryGetValue(line, out string? value) ? value.Trim() : ""));
+            result.FindingAnchors.Add(finding.Fingerprint, anchor);
+        }
         foreach (Finding f in result.Findings)
             if (result.Checks?.TryGetValue(f.RuleId, out CheckCounts? counts) == true) counts.Findings++;
         if (completeUsage)
