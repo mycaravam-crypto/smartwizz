@@ -36,8 +36,10 @@ public sealed class CheckCounts
 public sealed record ReviewRequestTiming(int Request, string Model, double ElapsedMilliseconds, int Files,
     int SystemCharacters, int UserCharacters, int? PromptTokens, int? CompletionTokens, int AcceptedFindings, bool StandardsOnly, int Attempts = 1, int? ReasoningTokens = null);
 
+public sealed record LocalFindingState(string Lifecycle, string Observation);
+
 public sealed record HistoricalFinding(string Id, string Category, Severity LastObservedSeverity, int LastObservedLine,
-    long LastSeenUnixSeconds, long Observations, string AnchorEvidence = "not-checked", int? MatchedLine = null);
+    long LastSeenUnixSeconds, long Observations, string AnchorEvidence = "not-checked", int? MatchedLine = null, string Lifecycle = "open");
 
 public sealed class ReviewResult
 {
@@ -50,6 +52,7 @@ public sealed class ReviewResult
     public int DuplicateDetections => Math.Max(0, RawDetections - Findings.Count);
     public int? KnownFindings { get; set; }
     public List<HistoricalFinding>? UnverifiedHistory { get; set; }
+    public Dictionary<string, LocalFindingState> LocalFindingStates { get; } = new(StringComparer.Ordinal);
     internal List<FileDiff> ReviewedSourceFiles { get; set; } = [];
     public double? HistoryElapsedMilliseconds { get; set; }
     public bool CacheHit { get; set; }
