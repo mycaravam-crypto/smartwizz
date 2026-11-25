@@ -35,6 +35,7 @@ public static class Report
         r.RawDetections,
         r.DuplicateDetections,
         r.KnownFindings,
+        r.UnverifiedHistory,
         r.HistoryElapsedMilliseconds,
         r.CacheHit,
         r.CacheCreatedUnixSeconds,
@@ -100,6 +101,9 @@ public static class Report
     static string Duration(double milliseconds) =>
         FormattableString.Invariant($"{milliseconds / 1000:0.00}s");
 
+    static string HistorySummary(List<HistoricalFinding> history) =>
+        $"Historical findings not confirmed in this inspection: {history.Count} (unverified, not resolved)";
+
     static string CacheSummary(ReviewResult r)
     {
         string age = r.CacheCreatedUnixSeconds is { } created
@@ -164,6 +168,7 @@ public static class Report
         if (r.KnownFindings is { } known) console.Write(new Text(r.CacheHit
             ? $"Historical identities found: {known} (no new observations)\n"
             : $"Previously observed: {known} | New: {r.PersistentFindingIds.Count - known}\n"));
+        if (r.UnverifiedHistory is { } historical) console.Write(new Text(HistorySummary(historical) + "\n"));
         if (r.CacheHit) console.Write(new Text(CacheSummary(r) + "\n"));
         if (r.CacheLookupMilliseconds is { } lookup) console.Write(new Text($"Cache lookup: {Duration(lookup)}\n"));
         if (r.HistoryElapsedMilliseconds is { } history) console.Write(new Text($"History: {Duration(history)}\n"));
@@ -217,6 +222,7 @@ public static class Report
         if (r.KnownFindings is { } known) w.WriteLine(r.CacheHit
             ? $"Historical identities found: {known} (no new observations)"
             : $"Previously observed: {known} | New: {r.PersistentFindingIds.Count - known}");
+        if (r.UnverifiedHistory is { } historical) w.WriteLine(HistorySummary(historical));
         if (r.CacheHit) w.WriteLine(CacheSummary(r));
         if (r.CacheLookupMilliseconds is { } lookup) w.WriteLine($"Cache lookup: {Duration(lookup)}");
         if (r.HistoryElapsedMilliseconds is { } history) w.WriteLine($"History: {Duration(history)}");
