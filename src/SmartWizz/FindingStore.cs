@@ -125,6 +125,7 @@ public static class FindingStore
         }
         foreach ((string fingerprint, string id) in ids) result.PersistentFindingIds.Add(fingerprint, id);
         result.KnownFindings = ids.Count;
+        // A cached snapshot is not a new inspection; do not infer missing findings from it.
     }
 
     public static void Record(string database, byte[] key, string repository, string scope, string revision,
@@ -205,8 +206,32 @@ public static class FindingStore
             command.ExecuteNonQuery();
             ids.Add(f.Fingerprint, id);
         }
+        // Historical omissions are a report projection, not a stored resolution transition.
+        // Include all records in this exact checkout/scope, even when the file was not reviewed.
+        List<HistoricalFinding> unverified = [];
+        var observed = ids.Values.ToHashSet(StringComparer.Ordinal);
+        using (SqliteCommand history = db.CreateCommand())
+        {
+            history.Transaction = tx;
+            history.CommandText = """
+                SELECT id,category,severity,start_line,last_seen,observations FROM findings
+                WHERE repository=$repository AND scope=$scope ORDER BY last_seen DESC,id
+                """;
+            history.Parameters.AddWithValue("$repository", repository);
+            history.Parameters.AddWithValue("$scope", scope);
+            using SqliteDataReader rows = history.ExecuteReader();
+            while (rows.Read())
+            {
+                ct.ThrowIfCancellationRequested();
+                string id = rows.GetString(0);
+                if (observed.Contains(id)) continue;
+                unverified.Add(new HistoricalFinding(id, RuleTaxonomy.StorageCategory(rows.GetString(1)),
+                    (Severity)rows.GetInt32(2), rows.GetInt32(3), rows.GetInt64(4), rows.GetInt64(5)));
+            }
+        }
         ct.ThrowIfCancellationRequested();
         tx.Commit();
+        result.UnverifiedHistory = unverified;
         result.KnownFindings = known;
         foreach ((string fingerprint, string id) in ids) result.PersistentFindingIds.Add(fingerprint, id);
     }
