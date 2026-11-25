@@ -97,6 +97,21 @@ public sealed class RulesetTests
         Assert.Throws<SmartWizzException>(() => Ruleset.Parse(json));
     }
 
+    [Theory]
+    [InlineData(false, "no-findings-reported")]
+    [InlineData(true, "incomplete")]
+    public async Task Coverage_distinguishes_unsent_checks_and_rejected_responses(bool rejected, string expected)
+    {
+        string reply = rejected ? Finding("std-unknown") : """{"findings":[]}""";
+        var stub = new StubHandler((_, _) => StubHandler.Chat(reply));
+        ReviewResult result = await Review.RunAsync(Added("src/A.cs", "catch { }"), new ReviewConfig(), Provider(stub), Prompts, default, Rules);
+        Assert.Equal(expected, result.Checks!["std-swallowed"].Status);
+        Assert.Equal("not-applicable-to-reviewed-files", result.Checks["std-secret"].Status);
+        Assert.Equal("reviewed-files-only", result.RulesetCoverageScope);
+        Assert.Equal("5.1", Assert.Single(result.RulesetNotChecked!).Ref);
+        Assert.Contains("rulesetCoverageScope", Report.ToJson(result));
+    }
+
     [Fact]
     public void Loads_metadata_and_hashes_the_whole_file()
     {
