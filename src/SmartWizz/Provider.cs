@@ -6,7 +6,7 @@ using System.Text.Json.Serialization;
 
 namespace SmartWizz;
 
-public sealed record Completion(string Content, string Model, int? PromptTokens = null, int? CompletionTokens = null);
+public sealed record Completion(string Content, string Model, int? PromptTokens = null, int? CompletionTokens = null, int Attempts = 1, int? ReasoningTokens = null);
 
 // The JSON schema a reply must follow; Name is sent as json_schema.name ([A-Za-z0-9_-]).
 public sealed record OutputSchema(string Name, JsonObject Schema);
@@ -25,7 +25,7 @@ public sealed class Provider(
     readonly Func<TimeSpan, CancellationToken, Task> _delay = delay ?? Task.Delay;
 
     sealed record Attempt(string? Content, SmartWizzException? Error, bool Retryable, TimeSpan? RetryAfter,
-        int? PromptTokens = null, int? CompletionTokens = null);
+        int? PromptTokens = null, int? CompletionTokens = null, int? ReasoningTokens = null);
 
     // schema: the JSON schema this reply must follow. Sent as response_format only when provider.jsonSchema is on.
     public async Task<Completion> CompleteAsync(string system, string user, CancellationToken ct, OutputSchema? schema = null)
@@ -38,13 +38,15 @@ public sealed class Provider(
             : null;
         string[] models = [cfg.Model, .. cfg.FallbackModels];
         SmartWizzException? lastError = null;
+        int attempts = 0;
         for (int m = 0; m < models.Length; m++)
         {
             for (int attempt = 0; attempt <= cfg.MaxRetries; attempt++)
             {
+                attempts++;
                 Attempt result = await SendOnceAsync(cfg.Endpoint, models[m], system, user, responseFormat, ct);
                 if (result.Content is not null)
-                    return new Completion(result.Content, models[m], result.PromptTokens, result.CompletionTokens);
+                    return new Completion(result.Content, models[m], result.PromptTokens, result.CompletionTokens, attempts, result.ReasoningTokens);
 
                 lastError = result.Error!;
                 if (!result.Retryable)
@@ -124,16 +126,20 @@ public sealed class Provider(
             string? content = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
             int? promptTokens = null;
             int? completionTokens = null;
+            int? reasoningTokens = null;
             if (doc.RootElement.TryGetProperty("usage", out JsonElement usage) && usage.ValueKind == JsonValueKind.Object)
             {
                 if (usage.TryGetProperty("prompt_tokens", out JsonElement prompt) && prompt.TryGetInt32(out int promptCount))
                     promptTokens = promptCount;
                 if (usage.TryGetProperty("completion_tokens", out JsonElement completion) && completion.TryGetInt32(out int completionCount))
                     completionTokens = completionCount;
+                if (usage.TryGetProperty("completion_tokens_details", out JsonElement details) && details.ValueKind == JsonValueKind.Object &&
+                    details.TryGetProperty("reasoning_tokens", out JsonElement reasoning) && reasoning.TryGetInt32(out int reasoningCount))
+                    reasoningTokens = reasoningCount;
             }
             return string.IsNullOrWhiteSpace(content)
                 ? throw new SmartWizzException(FailureKind.Provider, "provider returned empty content")
-                : new Attempt(content, null, Retryable: false, null, promptTokens, completionTokens);
+                : new Attempt(content, null, Retryable: false, null, promptTokens, completionTokens, reasoningTokens);
         }
         catch (Exception e) when (e is JsonException or KeyNotFoundException or IndexOutOfRangeException or InvalidOperationException)
         {
