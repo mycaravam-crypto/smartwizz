@@ -34,6 +34,28 @@ public static partial class RuleTaxonomy
         return category;
     }
 
+    // Historical checks corroborate a narrow lexical pattern, not program semantics.
+    // Never interpret a negative result as proof of resolution.
+    internal static string HistoricalPattern(string category, string source)
+    {
+        if (source.Length > 4096 || source.TrimStart().StartsWith("//", StringComparison.Ordinal) ||
+            source.TrimStart().StartsWith("/*", StringComparison.Ordinal) || source.TrimStart().StartsWith('*'))
+            return "not-checked";
+        bool? matched = category switch
+        {
+            "hardcoded-credential" => CredentialAssignment().IsMatch(source),
+            "off-by-one" => InclusiveLengthLoop().IsMatch(source),
+            "sql-injection" => Canonical("std-injection", source) == "sql-injection",
+            _ => null,
+        };
+        return matched switch
+        {
+            true => "pattern-present",
+            false => "pattern-not-confirmed",
+            null => "not-checked",
+        };
+    }
+
     // Restrict the alias to a zero-based increasing loop with the same index in its condition.
     [GeneratedRegex(@"^\s*for\s*\(\s*(?:int|var)\s+(?<index>\w+)\s*=\s*0\s*;\s*\k<index>\s*<=\s*\w+\.Length\s*;\s*\k<index>\s*\+\+\s*\)", RegexOptions.CultureInvariant)]
     private static partial Regex InclusiveLengthLoop();
