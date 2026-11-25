@@ -57,8 +57,8 @@ public sealed class TrackedReviewTests : IDisposable
 
     static string ClassWith(string member, string name = "A") => $"class {name}\n{{\n{member}\n}}\n";
 
-    static Func<HttpResponseMessage> Finding(string path, int line) => () => StubHandler.Chat(
-        $$"""{"findings":[{"ruleId":"null-dereference","severity":"high","title":"Possible null","message":"Guard it","filePath":"{{path}}","startLine":{{line}},"sourceRef":"F1-L{{line}}","confidence":0.9}]}""");
+    static Func<HttpResponseMessage> Finding(string path, int line, int fileOrdinal = 1) => () => StubHandler.Chat(
+        $$"""{"findings":[{"ruleId":"null-dereference","severity":"high","title":"Possible null","message":"Guard it","filePath":"{{path}}","startLine":{{line}},"sourceRef":"F{{fileOrdinal}}-L{{line}}","confidence":0.9}]}""");
 
     static Func<HttpResponseMessage> Reply(string content) => () => StubHandler.Chat(content);
 
@@ -99,7 +99,7 @@ public sealed class TrackedReviewTests : IDisposable
         string head = Commit("fix and new code",
             ("a.cs", ClassWith("    int X(Input? input) => input?.Value ?? 0;")),
             ("b.cs", ClassWith("    string S(string s) => s.Substring(5);", "B")));
-        _reviews.Enqueue(Finding("b.cs", 3));
+        _reviews.Enqueue(Finding("b.cs", 3, fileOrdinal: 2));
         _rechecks.Enqueue(Verdict(DefectFingerprint, "resolved"));
 
         ReviewRun run = await Run(head, first);
