@@ -93,14 +93,49 @@ public static class Report
             new Text(r.ReviewedFiles.ToString(System.Globalization.CultureInfo.InvariantCulture)),
             new Text(r.SkippedFiles.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)),
             new Text(r.Rejected.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-        console.Write(new Rule("[bold cyan]SmartWizz | Code review[/]"));
+        console.Write(new Markup("[bold cyan]SMARTWIZZ[/] [grey]| Code review[/]\n"));
         console.Write(table);
         if (r.ReviewedFiles == 0)
             console.Write(new Text("No reviewable files."));
-        // Preserve all existing report details and the familiar summary for terminal users.
-        using var details = new StringWriter(System.Globalization.CultureInfo.InvariantCulture);
-        WriteConsole(r, details);
-        console.Write(new Text(Safe(details.ToString())));
+        if (r.Models.Count > 0)
+            console.Write(new Text(Safe("Model: " + string.Join(", ", r.Models) + "\n")));
+        if (r.RulesetName is not null)
+            console.Write(new Text(Safe($"Ruleset: {r.RulesetName} {r.RulesetVersion}\n")));
+        console.Write(new Text($"{r.Requests} request(s)\n"));
+
+        foreach (Finding f in r.Findings.OrderByDescending(f => f.Severity))
+        {
+            string color = f.Severity switch
+            {
+                Severity.Critical or Severity.High => "red",
+                Severity.Medium => "yellow",
+                _ => "cyan",
+            };
+            string lines = f.EndLine is { } e ? $"{f.StartLine}-{e}" : $"{f.StartLine}";
+            var body = new Grid();
+            body.AddColumn();
+            body.AddRow(new Text(Safe(f.Title)));
+            body.AddRow(new Text(Safe($"{f.FilePath}:{lines}")));
+            body.AddRow(new Text(""));
+            body.AddRow(new Text(Safe(f.Message)));
+            if (f.SuggestedFix is { } fix)
+            {
+                body.AddRow(new Markup("[bold]Suggested fix (AI-generated, verify before applying)[/]"));
+                body.AddRow(new Text(Safe(fix)));
+            }
+            body.AddRow(new Text(""));
+            body.AddRow(new Text(Safe($"Rule: {f.RuleId} | Confidence: {f.Confidence:P0} | fp {f.Fingerprint}")));
+            var panel = new Panel(body)
+            {
+                Header = new PanelHeader($"[{color} bold]{f.Severity.ToString().ToUpperInvariant()}[/]"),
+                Width = Math.Min(110, console.Profile.Width),
+            };
+            console.Write(panel);
+        }
+        if (r.SkippedFiles.Count > 0)
+            console.Write(new Text(Safe("Skipped: " + string.Join(", ", r.SkippedFiles.Select(s => $"{s.Path} ({s.Reason})")) + "\n")));
+        if (r.Rejected.Count > 0)
+            console.Write(new Text(Safe("Rejected: " + string.Join("; ", r.Rejected) + "\n")));
     }
 
     public static void WriteConsole(ReviewResult r, TextWriter w)
