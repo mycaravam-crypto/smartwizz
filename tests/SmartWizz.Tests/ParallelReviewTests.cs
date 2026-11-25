@@ -24,7 +24,7 @@ public class ParallelReviewTests
                 await _overlap.Task.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("""{"choices":[{"message":{"content":"{\\"findings\\":[]}"}}]}""".Replace(@"\\", @"\"), Encoding.UTF8, "application/json"),
+                    Content = new StringContent("""{"choices":[{"message":{"content":"{\"findings\":[]}"}}]}""", Encoding.UTF8, "application/json"),
                 };
             }
             finally { Interlocked.Decrement(ref _active); }
