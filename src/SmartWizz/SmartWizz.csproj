@@ -27,6 +27,7 @@
   <ItemGroup>
     <EmbeddedResource Include="../../prompts/code-review.md" LogicalName="code-review.md" />
     <EmbeddedResource Include="../../prompts/review-format.md" LogicalName="review-format.md" />
+    <EmbeddedResource Include="../../prompts/review-format-v1.md" LogicalName="review-format-v1.md" />
     <EmbeddedResource Include="../../prompts/standards-review.md" LogicalName="standards-review.md" />
     <EmbeddedResource Include="../../prompts/revalidate.md" LogicalName="revalidate.md" />
   </ItemGroup>

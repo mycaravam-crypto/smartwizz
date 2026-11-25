@@ -49,6 +49,207 @@ public class FindingStoreTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
+    [Fact]
+    public void Missing_observation_is_unverified_not_resolved_and_scope_isolated()
+    {
+        string directory = Directory.CreateTempSubdirectory().FullName;
+        string database = Path.Combine(directory, "history.db");
+        byte[] key = new byte[32];
+        try
+        {
+            ReviewResult initial = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", "scope", "revision", initial);
+            var absent = new ReviewResult();
+            FindingStore.Record(database, key, "repo", "scope", "revision", absent);
+            HistoricalFinding historical = Assert.Single(Assert.IsType<List<HistoricalFinding>>(absent.UnverifiedHistory));
+            Assert.Equal(initial.PersistentFindingIds["fp"], historical.Id);
+            Assert.Equal(1L, historical.Observations);
+            Assert.Equal(Severity.High, historical.LastObservedSeverity);
+            Assert.Empty(absent.Findings);
+            var unrelated = new ReviewResult();
+            FindingStore.Record(database, key, "repo", "other-scope", "revision", unrelated);
+            Assert.Empty(Assert.IsType<List<HistoricalFinding>>(unrelated.UnverifiedHistory));
+            var cached = new ReviewResult { CacheHit = true };
+            FindingStore.ReadIdentities(database, key, "repo", "scope", cached, default);
+            Assert.Null(cached.UnverifiedHistory);
+            ReviewResult rediscovered = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", "scope", "revision", rediscovered);
+            Assert.Equal(1, rediscovered.KnownFindings);
+            Assert.Empty(Assert.IsType<List<HistoricalFinding>>(rediscovered.UnverifiedHistory));
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Fact]
+    public void Stable_policy_scope_adopts_legacy_identity_and_survives_review_configuration_changes()
+    {
+        string directory = Directory.CreateTempSubdirectory().FullName;
+        string database = Path.Combine(directory, "history.db");
+        byte[] key = new byte[32];
+        try
+        {
+            ReviewResult initial = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", "old-exact", "revision", initial);
+            string policy = FindingStore.PolicyScope("ruleset", null);
+            ReviewResult cached = Make("hardcoded-secret", 59);
+            cached.CacheHit = true;
+            FindingStore.ReadIdentities(database, key, "repo", policy, cached, "old-exact", default);
+            Assert.Equal(initial.PersistentFindingIds["fp"], cached.PersistentFindingIds["fp"]);
+            ReviewResult adopted = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", policy, "revision", adopted, legacyScope: "old-exact");
+            Assert.Equal(initial.PersistentFindingIds["fp"], adopted.PersistentFindingIds["fp"]);
+            ReviewResult later = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", policy, "revision", later, legacyScope: "different-exact");
+            Assert.Equal(initial.PersistentFindingIds["fp"], later.PersistentFindingIds["fp"]);
+            Assert.Equal(1, later.KnownFindings);
+            ReviewResult changedPolicy = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", FindingStore.PolicyScope("other-ruleset", null), "revision",
+                changedPolicy, legacyScope: "old-exact");
+            Assert.NotEqual(initial.PersistentFindingIds["fp"], changedPolicy.PersistentFindingIds["fp"]);
+            Assert.Equal(0, changedPolicy.KnownFindings);
+            using var db = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = database,
+                Pooling = false,
+            }.ToString());
+            db.Open();
+            using SqliteCommand command = db.CreateCommand();
+            command.CommandText = "SELECT SUM(observations) FROM findings";
+            Assert.Equal(4L, (long)command.ExecuteScalar()!);
+            command.CommandText = "SELECT COUNT(*) FROM findings";
+            Assert.Equal(2L, (long)command.ExecuteScalar()!);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Fact]
+    public void Historical_anchor_evidence_is_bounded_and_never_resolves_a_finding()
+    {
+        byte[] key = new byte[32];
+        var file = new FileDiff { Path = "PrivateFile.cs" };
+        file.NewLines.Add(58, "before");
+        file.NewLines.Add(59, "string Password = \"FAKE_TEST_SECRET\";");
+        file.NewLines.Add(60, "after");
+        file.AddedLines.Add(59);
+        string anchor = FindingStore.Hash(key, "anchor-v1", file.Path, "hardcoded-credential", Review.SourceAnchor(file, 59));
+        int budget = 10;
+        Assert.Equal(("exact-match", (int?)59), FindingStore.MatchHistoricalAnchor(key, file, "hardcoded-credential", anchor, ref budget, default));
+        Assert.Equal(9, budget);
+        Assert.Equal(("not-in-reviewed-diff", (int?)null), FindingStore.MatchHistoricalAnchor(key, null, "hardcoded-credential", anchor, ref budget, default));
+        file.NewLines[59] = "string Password = configurationValue;";
+        Assert.Equal(("not-matched", (int?)null), FindingStore.MatchHistoricalAnchor(key, file, "hardcoded-credential", anchor, ref budget, default));
+        budget = 0;
+        Assert.Equal(("not-checked", (int?)null), FindingStore.MatchHistoricalAnchor(key, file, "hardcoded-credential", anchor, ref budget, default));
+    }
+
+    [Fact]
+    public void Lifecycle_is_separate_from_observation_and_rediscovery_regresses_resolved_state()
+    {
+        string directory = Directory.CreateTempSubdirectory().FullName;
+        string database = Path.Combine(directory, "history.db");
+        byte[] key = new byte[32];
+        try
+        {
+            ReviewResult initial = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", "scope", "revision", initial);
+            Assert.Equal(new LocalFindingState("open", "new"), initial.LocalFindingStates["fp"]);
+            using (var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = database, Pooling = false }.ToString()))
+            {
+                db.Open();
+                using SqliteCommand command = db.CreateCommand();
+                // Simulate a future independently verified resolution.
+                command.CommandText = "INSERT INTO finding_lifecycle(id,state) VALUES ($id,'resolved')";
+                command.Parameters.AddWithValue("$id", initial.PersistentFindingIds["fp"]);
+                command.ExecuteNonQuery();
+            }
+            var absent = new ReviewResult();
+            FindingStore.Record(database, key, "repo", "scope", "revision", absent);
+            Assert.Empty(Assert.IsType<List<HistoricalFinding>>(absent.UnverifiedHistory));
+            ReviewResult cached = Make("hardcoded-secret", 59);
+            cached.CacheHit = true;
+            FindingStore.ReadIdentities(database, key, "repo", "scope", cached, default);
+            Assert.Empty(cached.LocalFindingStates);
+            ReviewResult rediscovered = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", "scope", "revision", rediscovered);
+            Assert.Equal(new LocalFindingState("regressed", "known"), rediscovered.LocalFindingStates["fp"]);
+            Assert.Equal(initial.PersistentFindingIds["fp"], rediscovered.PersistentFindingIds["fp"]);
+            var omitted = new ReviewResult();
+            FindingStore.Record(database, key, "repo", "scope", "revision", omitted);
+            Assert.Equal("regressed", Assert.Single(Assert.IsType<List<HistoricalFinding>>(omitted.UnverifiedHistory)).Lifecycle);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Fact]
+    public void Attested_resolution_requires_full_scoped_id_and_audits_rediscovery()
+    {
+        string directory = Directory.CreateTempSubdirectory().FullName;
+        string database = Path.Combine(directory, "history.db");
+        byte[] key = new byte[32];
+        try
+        {
+            ReviewResult initial = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", "scope", "revision", initial);
+            string id = initial.PersistentFindingIds["fp"];
+            Assert.Throws<SmartWizzException>(() => FindingStore.ResolveAttested(database, "other", "scope", null, id, "revision", default));
+            Assert.Throws<SmartWizzException>(() => FindingStore.ResolveAttested(database, "repo", "scope", null, id[..12], "revision", default));
+            FindingStore.ResolveAttested(database, "repo", "scope", null, id, "revision", default);
+            Assert.Throws<SmartWizzException>(() => FindingStore.ResolveAttested(database, "repo", "scope", null, id, "revision", default));
+            ReviewResult rediscovered = Make("hardcoded-secret", 59);
+            FindingStore.Record(database, key, "repo", "scope", "revision", rediscovered);
+            Assert.Equal("regressed", rediscovered.LocalFindingStates["fp"].Lifecycle);
+            using var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = database, Pooling = false }.ToString());
+            db.Open();
+            using SqliteCommand command = db.CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM finding_lifecycle_audit";
+            Assert.Equal(2L, (long)command.ExecuteScalar()!);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Theory]
+    [InlineData("hardcoded-credential", "string Password = \"FAKE_TEST_SECRET\";", "pattern-present")]
+    [InlineData("hardcoded-credential", "string Password = configurationValue;", "pattern-not-confirmed")]
+    [InlineData("off-by-one", "for (int i = 0; i <= values.Length; i++)", "pattern-present")]
+    [InlineData("off-by-one", "for (int i = 0; i < values.Length; i++)", "pattern-not-confirmed")]
+    [InlineData("sql-injection", "var sql = $\"SELECT * FROM users WHERE name = {name}\";", "pattern-present")]
+    [InlineData("sql-injection", "var sql = \"SELECT * FROM users WHERE name = @name\";", "pattern-not-confirmed")]
+    [InlineData("null-dereference", "value.ToString();", "not-checked")]
+    [InlineData("hardcoded-credential", "// string Password = \"FAKE_TEST_SECRET\";", "not-checked")]
+    public void Historical_patterns_are_advisory(string category, string source, string expected)
+    {
+        Assert.Equal(expected, RuleTaxonomy.HistoricalPattern(category, source));
+    }
+
+    [Fact]
+    public void Historical_pattern_evidence_does_not_count_as_a_new_detection()
+    {
+        string directory = Directory.CreateTempSubdirectory().FullName;
+        string database = Path.Combine(directory, "history.db");
+        byte[] key = new byte[32];
+        try
+        {
+            var file = new FileDiff { Path = "PrivateFile.cs" };
+            file.NewLines.Add(58, "before");
+            file.NewLines.Add(59, "string Password = \"FAKE_TEST_SECRET\";");
+            file.NewLines.Add(60, "after");
+            file.AddedLines.Add(59);
+            ReviewResult first = Make("hardcoded-secret", 59);
+            first.FindingAnchors["fp"] = Review.SourceAnchor(file, 59);
+            FindingStore.Record(database, key, "repo", "scope", "revision", first);
+            var absent = new ReviewResult { ReviewedSourceFiles = [file] };
+            FindingStore.Record(database, key, "repo", "scope", "revision", absent);
+            HistoricalFinding historical = Assert.Single(Assert.IsType<List<HistoricalFinding>>(absent.UnverifiedHistory));
+            Assert.Equal("exact-match", historical.AnchorEvidence);
+            Assert.Equal("pattern-present", historical.PatternEvidence);
+            Assert.Equal("open", historical.Lifecycle);
+            Assert.Equal(1L, historical.Observations);
+            Assert.Empty(absent.Findings);
+            Assert.Equal(0, absent.KnownFindings);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     static ReviewResult Make(string rule, int line)
     {
         var result = new ReviewResult();
@@ -90,8 +291,10 @@ public class FindingStoreTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
-    [Fact]
-    public void Inclusive_loop_alias_migration_preserves_canonical_identity_and_observations()
+    [Theory]
+    [InlineData("index-out-of-range")]
+    [InlineData("array-out-of-bounds")]
+    public void Inclusive_loop_alias_migration_preserves_canonical_identity_and_observations(string alias)
     {
         string directory = Directory.CreateTempSubdirectory().FullName;
         string database = Path.Combine(directory, "history.db");
@@ -103,12 +306,12 @@ public class FindingStoreTests
             ReviewResult canonical = Make("off-by-one", 71);
             canonical.FindingAnchors["fp"] = source;
             FindingStore.Record(database, key, "repo", "scope", "revision", canonical);
-            ReviewResult legacy = Make("index-out-of-range", 71);
+            ReviewResult legacy = Make(alias, 71);
             legacy.FindingAnchors["fp"] = source;
             FindingStore.Record(database, key, "repo", "scope", "revision", legacy);
-            ReviewResult current = Make("index-out-of-range", 71);
+            ReviewResult current = Make(alias, 71);
             current.FindingAnchors["fp"] = source;
-            current.FindingCategories["fp"] = RuleTaxonomy.Canonical("index-out-of-range", line);
+            current.FindingCategories["fp"] = RuleTaxonomy.Canonical(alias, line);
             FindingStore.Record(database, key, "repo", "scope", "revision", current);
             Assert.Equal(1, current.KnownFindings);
             Assert.Equal(canonical.PersistentFindingIds["fp"], current.PersistentFindingIds["fp"]);
@@ -132,6 +335,8 @@ public class FindingStoreTests
     [InlineData("index-out-of-range", "for (int i = 0; i < values.Length; i++)", "index-out-of-range")]
     [InlineData("index-out-of-range", "for (int i = 0; j <= values.Length; i++)", "index-out-of-range")]
     [InlineData("index-out-of-range", "return values[index];", "index-out-of-range")]
+    [InlineData("array-out-of-bounds", "for (int i = 0; i <= values.Length; i++)", "off-by-one")]
+    [InlineData("array-out-of-bounds", "return values[index];", "array-out-of-bounds")]
     [InlineData("std-injection", """return $"SELECT * FROM T WHERE Id = {id}";""", "sql-injection")]
     [InlineData("std-injection", """Process.Start("cmd", input);""", "std-injection")]
     [InlineData("std-hardcoded-config", """string Password = "FAKE_TEST_SECRET";""", "hardcoded-credential")]

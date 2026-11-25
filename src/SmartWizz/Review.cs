@@ -36,6 +36,11 @@ public sealed class CheckCounts
 public sealed record ReviewRequestTiming(int Request, string Model, double ElapsedMilliseconds, int Files,
     int SystemCharacters, int UserCharacters, int? PromptTokens, int? CompletionTokens, int AcceptedFindings, bool StandardsOnly, int Attempts = 1, int? ReasoningTokens = null);
 
+public sealed record LocalFindingState(string Lifecycle, string Observation);
+
+public sealed record HistoricalFinding(string Id, string Category, Severity LastObservedSeverity, int LastObservedLine,
+    long LastSeenUnixSeconds, long Observations, string AnchorEvidence = "not-checked", int? MatchedLine = null, string Lifecycle = "open", string PatternEvidence = "not-checked");
+
 public sealed class ReviewResult
 {
     public int ReviewedFiles { get; set; }
@@ -46,6 +51,17 @@ public sealed class ReviewResult
     public int RawDetections { get; set; }
     public int DuplicateDetections => Math.Max(0, RawDetections - Findings.Count);
     public int? KnownFindings { get; set; }
+    public List<HistoricalFinding>? UnverifiedHistory { get; set; }
+    internal List<HistoricalRevalidation.Candidate> HistoricalCandidates { get; } = [];
+    internal bool CollectHistoricalCandidates { get; set; }
+    public Dictionary<string, string>? HistoricalVerdicts { get; set; }
+    public int HistoricalRevalidationRequests { get; set; }
+    public int? HistoricalRevalidationAttempts { get; set; }
+    public int? HistoricalRevalidationPromptTokens { get; set; }
+    public int? HistoricalRevalidationCompletionTokens { get; set; }
+    public double? HistoricalRevalidationMilliseconds { get; set; }
+    public Dictionary<string, LocalFindingState> LocalFindingStates { get; } = new(StringComparer.Ordinal);
+    internal List<FileDiff> ReviewedSourceFiles { get; set; } = [];
     public double? HistoryElapsedMilliseconds { get; set; }
     public bool CacheHit { get; set; }
     public long? CacheCreatedUnixSeconds { get; set; }
@@ -197,7 +213,9 @@ public static partial class Review
 
             async Task<List<Finding>> AskAsync(string diff, string task, List<FileDiff> sent, List<string>? standardIds, bool standardsOnly)
             {
-                string userMessage = BuildUserMessage(diff, task);
+                Dictionary<string, (string Path, int Line)> references = SourceReferences(sent);
+                string userMessage = BuildUserMessage(diff, task + "\n\nAdded-line source references (file path, reference):\n" +
+                    string.Join("\n", references.Select(entry => $"{entry.Value.Path}: {entry.Key}")));
                 int id = ++request;
                 OutputSchema schema = FindingsSchema(sent.Select(f => f.Path), standardsOnly ? standardIds : null, cfg.SuggestFixes);
                 lock (progressGate)
@@ -208,7 +226,7 @@ public static partial class Review
                 long started = Stopwatch.GetTimestamp();
                 Completion reply = await provider.CompleteAsync(prompts.System, userMessage, token, schema);
                 double elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
-                List<Finding> findings = Parse(reply.Content, sent.ToDictionary(f => f.Path), cfg.MinConfidence, rejected, standardIds, standardsOnly);
+                List<Finding> findings = Parse(reply.Content, sent.ToDictionary(f => f.Path), cfg.MinConfidence, rejected, standardIds, standardsOnly, references);
                 timings.Add(new(id, reply.Model, elapsed, sent.Count, prompts.System.Length, userMessage.Length,
                     reply.PromptTokens, reply.CompletionTokens, findings.Count, standardsOnly, reply.Attempts, reply.ReasoningTokens));
                 foreach (Finding finding in findings)
@@ -249,6 +267,7 @@ public static partial class Review
             }
         }
         result.ReviewedFiles = totalFiles;
+        result.ReviewedSourceFiles = [.. batches.SelectMany(b => b)];
         result.RawDetections = all.Count;
         // Within a run, only equivalent categories at the same validated location merge.
         // Keep legacy fingerprints on representatives for checkpoint compatibility.
@@ -352,6 +371,23 @@ public static partial class Review
 
     // Mirrors the finding shape in prompts/review-format.md. Strict mode needs every property listed as required,
     // so optional ones allow null. ruleIds = null: free string (bug categories; std-* IDs are checked in Validate).
+    [GeneratedRegex(@"^F[1-9][0-9]*-L[1-9][0-9]*$", RegexOptions.CultureInvariant)]
+    private static partial Regex SourceReferenceFormat();
+
+    internal static Dictionary<string, (string Path, int Line)> SourceReferences(IEnumerable<FileDiff> files)
+    {
+        var references = new Dictionary<string, (string Path, int Line)>(StringComparer.Ordinal);
+        int ordinal = 0;
+        foreach (FileDiff file in files)
+        {
+            ordinal++;
+            foreach (int line in file.AddedLines.Order())
+                if (file.NewLines.ContainsKey(line))
+                    references.Add(FormattableString.Invariant($"F{ordinal}-L{line}"), (file.Path, line));
+        }
+        return references;
+    }
+
     public static OutputSchema FindingsSchema(IEnumerable<string> paths, IEnumerable<string>? ruleIds, bool suggestFixes = true)
     {
         static JsonArray Strings(IEnumerable<string> values) => [.. values.Select(v => (JsonNode)JsonValue.Create(v))];
@@ -367,11 +403,12 @@ public static partial class Review
                 ["message"] = new JsonObject { ["type"] = "string" },
                 ["filePath"] = new JsonObject { ["type"] = "string", ["enum"] = Strings(paths) },
                 ["startLine"] = new JsonObject { ["type"] = "integer" },
+                ["sourceRef"] = new JsonObject { ["type"] = "string" },
                 ["endLine"] = new JsonObject { ["type"] = Strings(["integer", "null"]) },
                 ["confidence"] = new JsonObject { ["type"] = "number" },
                 ["suggestedFix"] = new JsonObject { ["type"] = Strings(["string", "null"]) },
             },
-            ["required"] = Strings(["ruleId", "severity", "title", "message", "filePath", "startLine", "endLine", "confidence", "suggestedFix"]),
+            ["required"] = Strings(["ruleId", "severity", "title", "message", "filePath", "startLine", "sourceRef", "endLine", "confidence", "suggestedFix"]),
             ["additionalProperties"] = false,
         };
         if (!suggestFixes)
@@ -390,7 +427,8 @@ public static partial class Review
 
     public static List<Finding> Parse(
         string reply, IReadOnlyDictionary<string, FileDiff> files, double minConfidence, List<string> rejected,
-        IEnumerable<string>? standardIds = null, bool standardsOnly = false)
+        IEnumerable<string>? standardIds = null, bool standardsOnly = false,
+        IReadOnlyDictionary<string, (string Path, int Line)>? references = null)
     {
         // Tolerates prose or ```json fences around the object.
         int start = reply.IndexOf('{'), end = reply.LastIndexOf('}');
@@ -413,7 +451,7 @@ public static partial class Review
             string[] literals = RuleTaxonomy.CredentialLiterals(files.Values.SelectMany(file => file.NewLines.Values));
             foreach (JsonElement e in arr.EnumerateArray())
             {
-                Finding? f = Validate(e, files, minConfidence, allowed, standardsOnly, literals, out string? reason);
+                Finding? f = Validate(e, files, minConfidence, allowed, standardsOnly, literals, references, out string? reason);
                 if (f is null) rejected.Add(RuleTaxonomy.Redact(reason, literals));
                 else list.Add(f);
             }
@@ -422,7 +460,7 @@ public static partial class Review
     }
 
     static Finding? Validate(JsonElement e, IReadOnlyDictionary<string, FileDiff> files, double minConfidence,
-        HashSet<string>? standardIds, bool standardsOnly, string[] literals, out string reason)
+        HashSet<string>? standardIds, bool standardsOnly, string[] literals, IReadOnlyDictionary<string, (string Path, int Line)>? references, out string reason)
     {
         reason = "";
         if (e.ValueKind != JsonValueKind.Object) return Reject(out reason, "finding is not an object");
@@ -455,6 +493,48 @@ public static partial class Review
         }
         if (!files.TryGetValue(path, out FileDiff? file))
             return Reject(out reason, $"{path}: file not in reviewed diff");
+        // A quoted source line is evidence, not authority. Match only a unique added line
+        // in the same reviewed file; never guess an offset or match against context-only lines.
+        bool relocated = false;
+        string? evidence = Str("sourceLine");
+        if (references is not null)
+        {
+            if (!e.TryGetProperty("sourceRef", out JsonElement referenceValue) || referenceValue.ValueKind == JsonValueKind.Null)
+                return Reject(out reason, $"{path}:{start}: source-reference-missing");
+            string? sourceRef = Str("sourceRef");
+            if (sourceRef is null || !SourceReferenceFormat().IsMatch(sourceRef))
+                return Reject(out reason, $"{path}:{start}: source-reference-malformed");
+            if (!references.TryGetValue(sourceRef, out (string Path, int Line) location))
+                return Reject(out reason, $"{path}:{start}: source-reference-unknown");
+            if (!string.Equals(location.Path, path, StringComparison.Ordinal))
+                return Reject(out reason, $"{path}:{start}: source-reference-file-mismatch");
+            if (location.Line != start.Value)
+            {
+                relocated = true;
+                start = location.Line;
+                end = null;
+            }
+        }
+        else if (evidence is not null)
+        {
+            string[] quoted = evidence.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+            if (evidence.Length > 4096 || quoted.Length > 8 || quoted.Any(string.IsNullOrWhiteSpace))
+                return Reject(out reason, $"{path}:{start}: source-evidence-invalid");
+            int[] matches = [.. file.AddedLines.Where(line =>
+                quoted.Select((part, offset) => file.NewLines.TryGetValue(line + offset, out string? text) &&
+                    string.Equals(text.Trim(), part.Trim(), StringComparison.Ordinal)).All(match => match)).Take(2)];
+            if (matches.Length == 0)
+                return Reject(out reason, $"{path}:{start}: source-evidence-no-match");
+            if (matches.Length > 1)
+                return Reject(out reason, $"{path}:{start}: source-evidence-ambiguous");
+            if (matches[0] != start.Value)
+            {
+                relocated = true;
+                start = matches[0];
+                // The original end location is not independently verified.
+                end = null;
+            }
+        }
         if (!file.AddedLines.Contains(start.Value) || !file.NewLines.TryGetValue(start.Value, out string? startText))
             return Reject(out reason, $"{path}:{start}: not an added line");
         if (end is not null && !IsVisibleRange(file, start.Value, end.Value))
@@ -473,7 +553,7 @@ public static partial class Review
             ruleId = canonical;
         }
         // Optional: a malformed suggestion never costs the finding itself.
-        string? fix = e.TryGetProperty("suggestedFix", out JsonElement s) && s.ValueKind == JsonValueKind.String ? CleanCode(RuleTaxonomy.Redact(s.GetString()!, literals)) : null;
+        string? fix = !relocated && e.TryGetProperty("suggestedFix", out JsonElement s) && s.ValueKind == JsonValueKind.String ? CleanCode(RuleTaxonomy.Redact(s.GetString()!, literals)) : null;
         ruleId = RuleTaxonomy.Redact(ruleId, literals);
         return new Finding(ruleId, sev.Value, Cap(Sanitize(RuleTaxonomy.Redact(title, literals), false), 200),
             Cap(Sanitize(RuleTaxonomy.Redact(message, literals), true), 4000), path, start.Value,

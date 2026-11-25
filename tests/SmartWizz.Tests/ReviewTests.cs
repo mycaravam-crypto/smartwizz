@@ -16,6 +16,116 @@ public class ReviewTests
     static List<Finding> Parse(string reply, List<string>? rejected = null) =>
         Review.Parse(reply, Files, 0.5, rejected ?? []);
 
+    [Theory]
+    [InlineData(99, false, false, true)]
+    [InlineData(11, false, false, true)]
+    [InlineData(12, false, false, true)]
+    [InlineData(99, true, false, false)]
+    [InlineData(99, false, true, false)]
+    public void Source_evidence_requires_unique_added_line(int reported, bool duplicate, bool contextOnly, bool accepted)
+    {
+        var file = new FileDiff { Path = "src/Calc.cs" };
+        file.NewLines.Add(12, "    incorrect();");
+        if (!contextOnly) file.AddedLines.Add(12);
+        if (duplicate)
+        {
+            file.NewLines.Add(13, "incorrect();");
+            file.AddedLines.Add(13);
+        }
+        var files = new Dictionary<string, FileDiff> { [file.Path] = file };
+        string reply = One(Good.Replace("\"startLine\":12", $"\"startLine\":{reported}")
+            .Replace("\"endLine\":13", "\"endLine\":null") +
+            ",\"sourceLine\":\"incorrect();\",\"suggestedFix\":\"corrected();\"");
+        var rejected = new List<string>();
+        List<Finding> findings = Review.Parse(reply, files, 0.5, rejected);
+        if (!accepted)
+        {
+            Assert.Empty(findings);
+            Assert.Single(rejected);
+            return;
+        }
+        Finding finding = Assert.Single(findings);
+        Assert.Empty(rejected);
+        Assert.Equal(12, finding.StartLine);
+        Assert.Equal(reported == 12 ? "corrected();" : null, finding.SuggestedFix);
+    }
+
+    [Theory]
+    [InlineData("first();\n second();", true, false, false)]
+    [InlineData("first();\r\n second();", true, false, false)]
+    [InlineData("first();\n second();", false, true, false)]
+    [InlineData("first();\n second();", false, false, true)]
+    [InlineData("first();\n altered();", false, false, false)]
+    public void Multiline_evidence_requires_unique_contiguous_source(string evidence, bool accepted, bool duplicate, bool gap)
+    {
+        var file = new FileDiff { Path = "src/Calc.cs" };
+        file.NewLines.Add(12, "    first();");
+        file.NewLines.Add(gap ? 14 : 13, "    second();");
+        file.AddedLines.Add(12);
+        if (duplicate)
+        {
+            file.NewLines.Add(20, "first();");
+            file.NewLines.Add(21, "second();");
+            file.AddedLines.Add(20);
+        }
+        var files = new Dictionary<string, FileDiff> { [file.Path] = file };
+        string reply = One(Good.Replace("\"startLine\":12", "\"startLine\":99") +
+            ",\"sourceLine\":" + System.Text.Json.JsonSerializer.Serialize(evidence));
+        var rejected = new List<string>();
+        List<Finding> findings = Review.Parse(reply, files, 0.5, rejected);
+        if (accepted)
+        {
+            Finding finding = Assert.Single(findings);
+            Assert.Equal(12, finding.StartLine);
+            Assert.Null(finding.EndLine);
+            Assert.Empty(rejected);
+        }
+        else
+        {
+            Assert.Empty(findings);
+            Assert.Contains(duplicate ? "source-evidence-ambiguous" : "source-evidence-no-match", Assert.Single(rejected), StringComparison.Ordinal);
+        }
+    }
+
+    [Theory]
+    [InlineData("F1-L12", 12, true)]
+    [InlineData("F1-L12", 99, true)]
+    [InlineData("F1-L11", 11, false)]
+    [InlineData("F1-L99", 12, false)]
+    [InlineData("F2-L12", 12, false)]
+    [InlineData("", 12, false)]
+    [InlineData("not-a-reference", 12, false)]
+    public void Source_reference_must_belong_to_added_line_in_reported_file(string reference, int reported, bool accepted)
+    {
+        var file = new FileDiff { Path = "src/Calc.cs" };
+        file.NewLines.Add(11, "context();");
+        file.NewLines.Add(12, "incorrect();");
+        file.AddedLines.Add(12);
+        var other = new FileDiff { Path = "src/Other.cs" };
+        other.NewLines.Add(12, "other();");
+        other.AddedLines.Add(12);
+        var files = new Dictionary<string, FileDiff> { [file.Path] = file, [other.Path] = other };
+        Dictionary<string, (string Path, int Line)> references = Review.SourceReferences([file, other]);
+        string reply = One(Good.Replace("\"startLine\":12", $"\"startLine\":{reported}")
+            .Replace("\"endLine\":13", "\"endLine\":null") +
+            ",\"sourceRef\":" + System.Text.Json.JsonSerializer.Serialize(reference) +
+            ",\"suggestedFix\":\"corrected();\"");
+        var rejected = new List<string>();
+        List<Finding> findings = Review.Parse(reply, files, 0.5, rejected, references: references);
+        if (!accepted)
+        {
+            Assert.Empty(findings);
+            string expected = reference is "" or "not-a-reference" ? "source-reference-malformed" :
+                reference == "F2-L12" ? "source-reference-file-mismatch" : "source-reference-unknown";
+            Assert.Contains(expected, Assert.Single(rejected), StringComparison.Ordinal);
+            return;
+        }
+        Finding finding = Assert.Single(findings);
+        Assert.Equal(12, finding.StartLine);
+        Assert.Equal(reported == 12 ? "corrected();" : null, finding.SuggestedFix);
+        Assert.Empty(rejected);
+    }
+
     [Fact]
     public void Parses_valid_finding_inside_code_fence()
     {
@@ -141,7 +251,7 @@ public class ReviewTests
     [Fact]
     public async Task RunAsync_skips_unreviewable_files_and_batches_the_rest()
     {
-        var stub = new StubHandler((_, _) => StubHandler.Chat(One(Good)));
+        var stub = new StubHandler((_, _) => StubHandler.Chat(One(Good + ",\"sourceRef\":\"F1-L12\"")));
         var provider = new Provider(new HttpClient(stub), new ProviderConfig { Endpoint = "http://x/v1/chat/completions", Model = "m" }, null);
 
         ReviewResult result = await Review.RunAsync(GitDiff.Parse(GitDiffTests.Sample), new ReviewConfig(), provider, TestPrompts.Default, default);

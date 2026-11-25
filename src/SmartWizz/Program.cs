@@ -23,6 +23,9 @@ public static class Program
           --full-review       Review the complete PR diff even when --since is given
           --repo <path>       Git checkout (default: current directory)
           --config <path>     Config file (default: ./smartwizz.json if present)
+          --revalidate        Opt-in targeted historical provider review (fresh local review only)
+          --resolve-id <id>   Record human-attested resolution (check only; full ID from JSON)
+          --confirm-resolved  Attest that you independently verified the correction
           --remember          Enable local metadata-only finding history
           --no-remember       Disable history writes
           --cache             Enable recent exact-input local metadata reuse
@@ -122,6 +125,8 @@ public static class Program
         var cfg = Config.Load(opt.ConfigPath, Environment.GetEnvironmentVariable);
         opt = opt.ResolveStorage(cfg.Storage, Environment.GetEnvironmentVariable("CI") is not null,
             opt.Check || opt.ConfigPath is not null, Environment.GetEnvironmentVariable("SMARTWIZZ_HISTORY_KEY") is not null || HistoryKey.PreviouslyInitialized());
+        if (opt.RevalidateHistory && !opt.Remember)
+            throw new SmartWizzException(FailureKind.Usage, "--revalidate requires enabled local history outside CI");
         if (opt.Check || opt.Staged)
             Console.Error.WriteLine($"finding history: {(opt.Remember ? "enabled" : "disabled")} | review cache: {(opt.Cache ? "enabled" : "disabled")}");
         if (opt.PrId is { } prId)
@@ -147,6 +152,18 @@ public static class Program
             LoadPrompt("code-review.md"), LoadPrompt("revalidate.md"), LoadPrompt("standards-review.md"));
         string scopeMaterial = JsonSerializer.Serialize(new { cfg.Provider, cfg.Review, cfg.AzureDevOps, cfg.GitHub }) + prompts.System + prompts.Review + prompts.Standards + prompts.Revalidation + (ruleset?.Sha256 ?? "");
         string reviewScope = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(scopeMaterial)));
+        string legacySystem = Review.SystemPrompt(Review.FormatPrompt(LoadPrompt("review-format-v1.md"), cfg.Review), legacyStandard);
+        string legacyScope = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(
+            JsonSerializer.Serialize(new { cfg.Provider, cfg.Review, cfg.AzureDevOps, cfg.GitHub }) +
+            legacySystem + prompts.Review + prompts.Standards + prompts.Revalidation + (ruleset?.Sha256 ?? ""))));
+        string historyScope = FindingStore.PolicyScope(ruleset?.Sha256, legacyStandard);
+        if (opt.ResolveId is { } resolution)
+        {
+            await FindingStore.ResolveAttestedAsync(opt, historyScope, legacyScope, resolution, ct);
+            Console.WriteLine("Finding resolution recorded (human attestation; not automated verification).");
+            Console.WriteLine("Use --no-cache for the next fresh inspection.");
+            return 0;
+        }
         ReviewCheckpoint? previous = UsableCheckpoint(ReviewCheckpoint.Load(opt.StateIn, Console.Error), opt.Since);
         // No client-wide timeout: Provider and AzureDevOpsPublisher bound every request with their configured timeout.
         using HttpClient http = new() { Timeout = Timeout.InfiniteTimeSpan };
@@ -163,7 +180,12 @@ public static class Program
             opt, previous, cfg.Review, provider, prompts, reviewScope, ruleset, Console.Error, ct, progress, cfg.Provider.Model);
 
         if (opt.Remember)
-            await FindingStore.TryRecordAsync(opt, reviewScope, result, Console.Error, ct);
+        {
+            result.CollectHistoricalCandidates = opt.RevalidateHistory;
+            await FindingStore.TryRecordAsync(opt, historyScope, result, Console.Error, legacyScope, ct);
+            if (opt.RevalidateHistory)
+                await HistoricalRevalidation.RunAsync(result, provider, Console.Error, ct);
+        }
         result.EndToEndMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
         if (opt.Problems) Report.WriteProblems(result, Console.Out);
         else if (!plain && !Console.IsOutputRedirected && AnsiConsole.Profile.Capabilities.Interactive)
@@ -233,6 +255,9 @@ public sealed record Options
     public bool Problems { get; init; }
     public bool Plain { get; init; }
     public bool Verbose { get; init; }
+    public bool RevalidateHistory { get; init; }
+    public string? ResolveId { get; init; }
+    public bool ConfirmResolved { get; init; }
     public bool Remember { get; init; }
     public bool Cache { get; init; }
     internal bool? RememberOverride { get; init; }
@@ -251,7 +276,7 @@ public sealed record Options
         return this with
         {
             Remember = enabled && (remember ?? true),
-            Cache = enabled && AnnotatedDiffPath is null && (cache ?? (FailOn is null)),
+            Cache = enabled && !RevalidateHistory && AnnotatedDiffPath is null && (cache ?? (FailOn is null)),
             InitializeHistory = enabled && (remember == true || cache == true),
             InvalidateCache = enabled && initialized && CacheOverride == false,
         };
@@ -282,6 +307,9 @@ public sealed record Options
                 "--repo" => o with { Repo = Value() },
                 "--config" => o with { ConfigPath = Value() },
                 "--json" => o with { JsonPath = Value() },
+                "--revalidate" => o with { RevalidateHistory = true },
+                "--resolve-id" => o with { ResolveId = Value() },
+                "--confirm-resolved" => o with { ConfirmResolved = true },
                 "--remember" => o with { Remember = true, RememberOverride = true },
                 "--no-remember" => o with { Remember = false, RememberOverride = false },
                 "--cache" => o with { Cache = true, CacheOverride = true },
@@ -305,6 +333,13 @@ public sealed record Options
                 _ => throw new SmartWizzException(FailureKind.Usage, $"unknown argument: {args[i]}"),
             };
         }
+        if (!o.Help && o.RevalidateHistory && (!o.Check || o.ResolveId is not null || o.Stateless ||
+            o.RememberOverride == false || o.CacheOverride == true))
+            throw new SmartWizzException(FailureKind.Usage, "--revalidate requires a fresh local check with history enabled");
+        if (!o.Help && (o.ResolveId is not null || o.ConfirmResolved) &&
+            (!o.Check || o.ResolveId is null || !o.ConfirmResolved || o.Stateless || o.RememberOverride == false ||
+             o.JsonPath is not null || o.AnnotatedDiffPath is not null || o.FailOn is not null || o.CacheOverride is not null || o.Problems))
+            throw new SmartWizzException(FailureKind.Usage, "use check --resolve-id <full ID> --confirm-resolved with local history enabled; do not combine with review output or cache options");
         if (o.StateIn is not null && (o.Since is null || o.StateOut is null))
             throw new SmartWizzException(FailureKind.Usage, "--state-in requires --since and --state-out");
         if (o.Since is not null && !ReviewCheckpoint.IsCommitSha(o.Since))

@@ -29,9 +29,31 @@ public static partial class RuleTaxonomy
             return "sql-injection";
         if (category is "std-hardcoded-config" or "hardcoded-config" && CredentialAssignment().IsMatch(source))
             return "hardcoded-credential";
-        if (category == "index-out-of-range" && InclusiveLengthLoop().IsMatch(source))
+        if (category is "index-out-of-range" or "array-out-of-bounds" && InclusiveLengthLoop().IsMatch(source))
             return "off-by-one";
         return category;
+    }
+
+    // Historical checks corroborate a narrow lexical pattern, not program semantics.
+    // Never interpret a negative result as proof of resolution.
+    internal static string HistoricalPattern(string category, string source)
+    {
+        if (source.Length > 4096 || source.TrimStart().StartsWith("//", StringComparison.Ordinal) ||
+            source.TrimStart().StartsWith("/*", StringComparison.Ordinal) || source.TrimStart().StartsWith('*'))
+            return "not-checked";
+        bool? matched = category switch
+        {
+            "hardcoded-credential" => CredentialAssignment().IsMatch(source),
+            "off-by-one" => InclusiveLengthLoop().IsMatch(source),
+            "sql-injection" => Canonical("std-injection", source) == "sql-injection",
+            _ => null,
+        };
+        return matched switch
+        {
+            true => "pattern-present",
+            false => "pattern-not-confirmed",
+            null => "not-checked",
+        };
     }
 
     // Restrict the alias to a zero-based increasing loop with the same index in its condition.
@@ -62,7 +84,7 @@ public static partial class RuleTaxonomy
         "hardcoded-config" or "std-hardcoded-config" or "std-injection" or
         "sql-injection" or "unsafe-sql-query" or "null-reference" or "null-dereference" or
         "empty-catch" or "swallowed-exception" or "missing-test" or "off-by-one" or
-        "index-out-of-range";
+        "index-out-of-range" or "array-out-of-bounds";
 
     // Unknown model-generated identifiers are not trusted metadata.
     public static string StorageCategory(string rule) => Canonical(rule) switch
