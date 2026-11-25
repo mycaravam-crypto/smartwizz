@@ -40,7 +40,7 @@ public sealed class TrackedReviewTests : IDisposable
             null, delay: StubHandler.NoDelay);
     }
 
-    public void Dispose() => Directory.Delete(_dir, recursive: true);
+    public void Dispose() => IncrementalGitTests.DeleteTestRepository(_dir);
 
     string Commit(string message, params (string Path, string? Content)[] files)
     {
