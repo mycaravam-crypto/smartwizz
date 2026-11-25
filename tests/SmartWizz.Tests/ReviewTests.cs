@@ -104,7 +104,7 @@ public class ReviewTests
         other.NewLines.Add(12, "other();");
         other.AddedLines.Add(12);
         var files = new Dictionary<string, FileDiff> { [file.Path] = file, [other.Path] = other };
-        var references = Review.SourceReferences([file, other]);
+        Dictionary<string, (string Path, int Line)> references = Review.SourceReferences([file, other]);
         string reply = One(Good.Replace("\"startLine\":12", $"\"startLine\":{reported}")
             .Replace("\"endLine\":13", "\"endLine\":null") +
             ",\"sourceRef\":" + System.Text.Json.JsonSerializer.Serialize(reference) +
