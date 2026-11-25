@@ -37,7 +37,7 @@ public sealed record ReviewRequestTiming(int Request, string Model, double Elaps
     int SystemCharacters, int UserCharacters, int? PromptTokens, int? CompletionTokens, int AcceptedFindings, bool StandardsOnly, int Attempts = 1, int? ReasoningTokens = null);
 
 public sealed record HistoricalFinding(string Id, string Category, Severity LastObservedSeverity, int LastObservedLine,
-    long LastSeenUnixSeconds, long Observations);
+    long LastSeenUnixSeconds, long Observations, string AnchorEvidence = "not-checked", int? MatchedLine = null);
 
 public sealed class ReviewResult
 {
@@ -50,6 +50,7 @@ public sealed class ReviewResult
     public int DuplicateDetections => Math.Max(0, RawDetections - Findings.Count);
     public int? KnownFindings { get; set; }
     public List<HistoricalFinding>? UnverifiedHistory { get; set; }
+    internal List<FileDiff> ReviewedSourceFiles { get; set; } = [];
     public double? HistoryElapsedMilliseconds { get; set; }
     public bool CacheHit { get; set; }
     public long? CacheCreatedUnixSeconds { get; set; }
@@ -253,6 +254,7 @@ public static partial class Review
             }
         }
         result.ReviewedFiles = totalFiles;
+        result.ReviewedSourceFiles = [.. batches.SelectMany(b => b)];
         result.RawDetections = all.Count;
         // Within a run, only equivalent categories at the same validated location merge.
         // Keep legacy fingerprints on representatives for checkpoint compatibility.
