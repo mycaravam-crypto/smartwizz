@@ -150,7 +150,7 @@ public static class Report
             };
             string lines = f.EndLine is { } e ? $"{f.StartLine}-{e}" : $"{f.StartLine}";
             var body = new Grid();
-            body.AddColumn();
+            body.AddColumn(new GridColumn().Width(Math.Max(1, Math.Min(110, console.Profile.Width) - 4)));
             body.AddRow(new Text(Safe(f.Title)));
             body.AddRow(new Text(Safe($"{f.FilePath}:{lines}")));
             body.AddRow(new Text(""));
