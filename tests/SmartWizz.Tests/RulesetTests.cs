@@ -67,7 +67,7 @@ public sealed class RulesetTests
     [InlineData("fixed", "critical", Severity.High)]
     public async Task Ruleset_severity_policy_applies_to_canonical_findings(string mode, string modelSeverity, Severity expected)
     {
-        Ruleset rules = Ruleset.Parse(Sample.Replace(
+        var rules = Ruleset.Parse(Sample.Replace(
             "\"id\": \"std-secret\", \"severity\": \"high\"",
             $"\"id\": \"std-secret\", \"severity\": \"high\", \"severityMode\": \"{mode}\", \"categories\": [\"hardcoded-credential\"]"));
         var stub = new StubHandler((_, _) => StubHandler.Chat(Finding("hardcoded-secret").Replace("\"severity\":\"medium\"", $"\"severity\":\"{modelSeverity}\"")));
