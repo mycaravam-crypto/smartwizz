@@ -23,8 +23,11 @@ public static class Program
           --full-review       Review the complete PR diff even when --since is given
           --repo <path>       Git checkout (default: current directory)
           --config <path>     Config file (default: ./smartwizz.json if present)
-          --remember          Opt in to local metadata-only finding history
-          --cache             Reuse recent exact-input local metadata (check or --staged only)
+          --remember          Enable local metadata-only finding history
+          --no-remember       Disable history writes
+          --cache             Enable recent exact-input local metadata reuse
+          --no-cache          Force fresh inspection
+          --stateless         Disable history and cache
           --verbose           List excluded untracked paths and per-request performance metrics
           --plain             Disable rich terminal rendering (also automatic in CI and redirected output)
           --json <path>       Also write the JSON report to this file
@@ -117,6 +120,10 @@ public static class Program
         }
         else Config.LoadDotEnv(".env");
         var cfg = Config.Load(opt.ConfigPath, Environment.GetEnvironmentVariable);
+        opt = opt.ResolveStorage(cfg.Storage, Environment.GetEnvironmentVariable("CI") is not null,
+            opt.Check || opt.ConfigPath is not null, Environment.GetEnvironmentVariable("SMARTWIZZ_HISTORY_KEY") is not null || HistoryKey.PreviouslyInitialized());
+        if (opt.Check || opt.Staged)
+            Console.Error.WriteLine($"finding history: {(opt.Remember ? "enabled" : "disabled")} | review cache: {(opt.Cache ? "enabled" : "disabled")}");
         if (opt.PrId is { } prId)
         {
             AdoPrResolver.Resolved resolved = await AdoPrResolver.ResolveAsync(opt.Repo, prId, ct);
@@ -138,7 +145,7 @@ public static class Program
         var prompts = new ReviewPrompts(
             Review.SystemPrompt(Review.FormatPrompt(LoadPrompt("review-format.md"), cfg.Review), legacyStandard),
             LoadPrompt("code-review.md"), LoadPrompt("revalidate.md"), LoadPrompt("standards-review.md"));
-        string scopeMaterial = JsonSerializer.Serialize(cfg) + prompts.System + prompts.Review + prompts.Standards + prompts.Revalidation + (ruleset?.Sha256 ?? "");
+        string scopeMaterial = JsonSerializer.Serialize(new { cfg.Provider, cfg.Review, cfg.AzureDevOps, cfg.GitHub }) + prompts.System + prompts.Review + prompts.Standards + prompts.Revalidation + (ruleset?.Sha256 ?? "");
         string reviewScope = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(scopeMaterial)));
         ReviewCheckpoint? previous = UsableCheckpoint(ReviewCheckpoint.Load(opt.StateIn, Console.Error), opt.Since);
         // No client-wide timeout: Provider and AzureDevOpsPublisher bound every request with their configured timeout.
@@ -228,6 +235,25 @@ public sealed record Options
     public bool Verbose { get; init; }
     public bool Remember { get; init; }
     public bool Cache { get; init; }
+    internal bool? RememberOverride { get; init; }
+    internal bool? CacheOverride { get; init; }
+    internal bool Stateless { get; init; }
+    internal bool InitializeHistory { get; init; }
+
+    internal Options ResolveStorage(StorageConfig storage, bool ci, bool trustedConfig, bool initialized)
+    {
+        bool local = Check || Staged;
+        bool? remember = RememberOverride ?? (trustedConfig ? storage.Remember : null);
+        bool? cache = CacheOverride ?? (trustedConfig ? storage.Cache : null);
+        bool consent = initialized || remember == true || cache == true;
+        bool enabled = local && !ci && !Stateless && consent;
+        return this with
+        {
+            Remember = enabled && (remember ?? true),
+            Cache = enabled && AnnotatedDiffPath is null && (cache ?? FailOn is null),
+            InitializeHistory = enabled && (remember == true || cache == true),
+        };
+    }
     public string? AnnotatedDiffPath { get; init; }
     public string? StateIn { get; init; }
     public string? StateOut { get; init; }
@@ -254,8 +280,11 @@ public sealed record Options
                 "--repo" => o with { Repo = Value() },
                 "--config" => o with { ConfigPath = Value() },
                 "--json" => o with { JsonPath = Value() },
-                "--remember" => o with { Remember = true },
-                "--cache" => o with { Cache = true },
+                "--remember" => o with { Remember = true, RememberOverride = true },
+                "--no-remember" => o with { Remember = false, RememberOverride = false },
+                "--cache" => o with { Cache = true, CacheOverride = true },
+                "--no-cache" => o with { Cache = false, CacheOverride = false },
+                "--stateless" => o with { Stateless = true, Remember = false, Cache = false },
                 "--verbose" => o with { Verbose = true },
                 "--plain" => o with { Plain = true },
                 "--format" => Value() switch
