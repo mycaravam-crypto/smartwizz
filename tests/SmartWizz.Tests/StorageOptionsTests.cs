@@ -27,10 +27,13 @@ public class StorageOptionsTests
         Options fresh = Options.Parse(["check", "--no-cache"]).ResolveStorage(config, false, true, false);
         Assert.True(fresh.Remember);
         Assert.False(fresh.Cache);
+        Options initializedFresh = Options.Parse(["check", "--no-cache"]).ResolveStorage(config, false, true, true);
+        Assert.True(initializedFresh.InvalidateCache);
         Options stateless = Options.Parse(["check", "--stateless", "--cache"]).ResolveStorage(config, false, true, true);
         Assert.False(stateless.Remember);
         Assert.False(stateless.Cache);
         Assert.False(stateless.InitializeHistory);
+        Assert.False(stateless.InvalidateCache);
     }
 
     [Fact]
