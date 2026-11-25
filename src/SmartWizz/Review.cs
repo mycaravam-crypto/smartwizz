@@ -289,7 +289,8 @@ public static partial class Review
         // Keep legacy fingerprints on representatives for checkpoint compatibility.
         var byPath = files.ToDictionary(f => f.Path, StringComparer.Ordinal);
         var representatives = all.GroupBy(f => (f.FilePath, f.StartLine, End: f.EndLine ?? f.StartLine,
-            Rule: RuleTaxonomy.Canonical(f.RuleId, byPath[f.FilePath].NewLines[f.StartLine])))
+            Rule: ruleset?.CanonicalCategory(f.RuleId, byPath[f.FilePath].NewLines[f.StartLine]) ??
+                RuleTaxonomy.Canonical(f.RuleId, byPath[f.FilePath].NewLines[f.StartLine])))
             .Select(g => (Finding: g.OrderByDescending(f => f.Severity).ThenByDescending(f => f.Confidence).First(),
                 Requests: g.Select(f => origins[f]).Distinct().Order().ToArray(),
                 Rules: g.Select(f => f.RuleId).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
