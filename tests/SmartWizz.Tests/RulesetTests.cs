@@ -29,10 +29,10 @@ public sealed class RulesetTests
 
     static IEnumerable<string> Ids(IEnumerable<Ruleset.Check> checks) => checks.Select(c => c.Id);
 
-    static string Finding(string id, string path = "src/A.cs", int line = 1) => System.Text.Json.JsonSerializer.Serialize(new
+    static string Finding(string id, string path = "src/A.cs", int line = 1, int fileOrdinal = 1) => System.Text.Json.JsonSerializer.Serialize(new
     {
         findings = new[] { new { ruleId = id, severity = "medium", title = "Issue", message = "Fix it",
-            filePath = path, startLine = line, sourceRef = $"F1-L{line}", confidence = 0.9 } }
+            filePath = path, startLine = line, sourceRef = $"F{fileOrdinal}-L{line}", confidence = 0.9 } }
     });
 
     static Provider Provider(StubHandler stub, bool jsonSchema = false) =>
@@ -153,7 +153,7 @@ public sealed class RulesetTests
         {
             1 => Finding("std-secret", line: 2),
             // A follow-up pass may only report its own checks: the bug finding is rejected, the check is kept.
-            _ => """{"findings":[""" + Finding("std-weak-test", "tests/ATests.cs")[13..^2] + "," + Finding("null-dereference")[13..^2] + "]}",
+            _ => """{"findings":[""" + Finding("std-weak-test", "tests/ATests.cs", fileOrdinal: 2)[13..^2] + "," + Finding("null-dereference")[13..^2] + "]}",
         }));
         ReviewResult result = await Review.RunAsync(files, new ReviewConfig { MaxChecksPerRequest = 2 }, Provider(stub), Prompts, default, Rules);
 
