@@ -269,8 +269,41 @@ public class ReviewTests
         Assert.Equal(timing.Request, result.FindingRequests[finding.Fingerprint]);
         Assert.Equal(["deleted", "binary", "excluded"], result.SkippedFiles.Select(s => s.Reason));
         Assert.Contains("BEGIN-DIFF-", stub.Requests[0].Body);
+        using var requestBody = System.Text.Json.JsonDocument.Parse(stub.Requests[0].Body!);
+        string userMessage = requestBody.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!;
+        Assert.Contains("F1-L12 |+", userMessage);
+        Assert.DoesNotContain("Added-line source references", stub.Requests[0].Body);
         Assert.Contains("- web/package-lock.json\\n", stub.Requests[0].Body); // listed for context (JSON-escaped newline)...
         Assert.DoesNotContain("File: web/package-lock.json", stub.Requests[0].Body); // ...but not sent
+    }
+
+    [Fact]
+    public void Inline_references_match_added_lines_and_stay_inside_diff()
+    {
+        List<FileDiff> files = GitDiff.Parse("""
+            diff --git a/a.cs b/a.cs
+            --- a/a.cs
+            +++ b/a.cs
+            @@ -1,2 +1,2 @@
+             context
+            -old
+            +new
+            diff --git a/b.cs b/b.cs
+            --- a/b.cs
+            +++ b/b.cs
+            @@ -0,0 +1 @@
+            +other
+            """);
+        string diff = Review.BuildDiff(files, null, "test", inlineReferences: true);
+        Assert.Contains("F1-L2 |+new", diff);
+        Assert.Contains("F2-L1 |+other", diff);
+        Assert.DoesNotContain("F1-L1", diff);
+        Assert.Contains(" | context", diff);
+        Assert.Contains(" |-old", diff);
+        Assert.EndsWith("END-DIFF-test\n", diff);
+        Dictionary<string, (string Path, int Line)> references = Review.SourceReferences(files);
+        Assert.Equal(("a.cs", 2), references["F1-L2"]);
+        Assert.Equal(("b.cs", 1), references["F2-L1"]);
     }
 
     [Fact]
