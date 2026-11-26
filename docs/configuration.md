@@ -35,7 +35,7 @@ Every retry and fallback is logged to stderr. The report and JSON name the model
 
 ## Internal / self-hosted model APIs
 
-Any server that speaks the OpenAI chat-completions format works: vLLM, Ollama, LiteLLM, TGI, LM Studio, or an Azure OpenAI gateway. Nothing about the code is public-API specific.
+Any server that speaks the OpenAI chat-completions format works: vLLM, Ollama, LiteLLM, TGI, LM Studio, or an Azure OpenAI gateway. Provider compatibility must be verified against the chat-completions contract.
 
 ```json
 {
@@ -61,13 +61,13 @@ SmartWizz is built to work with local models below ~30B parameters. Start from [
 What each piece does for a small model:
 
 - **The ruleset** sends only checks whose triggers match the change, as short instructions with a Bad/Good example. A small change usually gets 0–3 checks instead of the whole guide.
-- **`maxChecksPerRequest`** keeps each prompt to a few checks. Larger changes get extra standards-only requests rather than one long list the model half-follows. A batch takes `applicable checks ÷ 8` requests, rounded up (at most 4 with the default ruleset).
+- **`maxChecksPerRequest`** controls the number of applicable checks per pass. Zero sends all selected checks in one pass. Positive values trade additional requests for smaller check groups; measure the effect on recall and latency.
 - **`maxCharsPerRequest` / `contextLines`** keep the diff small enough for the context window. One request is roughly the system prompt (~1.7k characters), the diff batch, and the task (~1k characters plus ~450 per check).
 - **Prompt layout for prefix caching:** every request of a batch starts with the same system prompt and the same diff block; the pass-specific task and its checks come last, after the diff's end marker. Servers that reuse a matching prompt prefix (llama.cpp's prompt cache, vLLM's automatic prefix caching, Ollama) then process the diff once per batch rather than once per pass. Keep prompt caching enabled on the server.
 - **Follow-up passes** send only the files their checks apply to when that is under half of the batch; otherwise they resend the full diff, which may benefit from server-side prefix caching.
-- **Context window:** make sure the server gives the model enough context, or it silently drops the start of the prompt. With the example values, allow at least 8k tokens. Ollama is configured by `OLLAMA_CONTEXT_LENGTH` or the model's `num_ctx`; the chat-completions API cannot set it.
+- **Context window:** make sure the server gives the model enough context, or it silently drops the start of the prompt. With the example values, allow a context window large enough for the actual input and output; 8k may be insufficient. Ollama is configured by `OLLAMA_CONTEXT_LENGTH` or the model's `num_ctx`; the chat-completions API cannot set it.
 - **Output:** the model must answer with JSON. The example enables `provider.jsonSchema`, which makes the server constrain output to the finding schema (llama.cpp server, vLLM, Ollama 0.5+ and LM Studio support it); follow-up passes may then only produce the check IDs they were sent. On a server without support, set it to `false`. If a model still often fails (`[invalid-model-output]`), try a larger or code-tuned model before loosening anything else.
-- **Lean output:** generating tokens is usually the slowest step on local hardware, so the example sets `suggestFixes: false`, and the model is told the `minConfidence` floor rather than writing out findings that get dropped.
+- **Lean output:** generating tokens is usually the slowest step on local hardware; the example sets `suggestFixes: false`, and the model is told the `minConfidence` floor rather than writing out findings that get dropped.
 
 Measure on your own model with the [benchmark](../benchmarks/README.md) before relying on it. `tools/ruleset.py preview` shows what a diff will send.
 
