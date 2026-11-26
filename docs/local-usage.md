@@ -55,18 +55,7 @@ smartwizz check --verbose --json review.json # request performance metrics
 
 ## Install as a .NET tool
 
-SmartWizz is not on NuGet, so you build the package from a clone. You need the .NET 10 SDK, `git`, and `~/.dotnet/tools` (`%USERPROFILE%\.dotnet\tools` on Windows) on your `PATH`.
-
-**1. Build and install.** Run from the SmartWizz checkout:
-
-```sh
-dotnet pack src/SmartWizz -c Release -p:Version=0.1.$(git rev-list --count HEAD)
-dotnet tool update --global --add-source src/SmartWizz/bin/Release MyCaravam.SmartWizz
-```
-
-`dotnet tool update` installs the tool if it is missing.
-
-**2. Create the user config.** `smartwizz check` reads only this directory. On Windows it is `%APPDATA%\smartwizz`.
+Follow the [installation commands](../README.md#install) in the root README. On Linux, create the user configuration:
 
 ```sh
 conf="${XDG_CONFIG_HOME:-$HOME/.config}/smartwizz"
@@ -76,17 +65,9 @@ cp .env.example "$conf/.env"
 chmod 600 "$conf/.env"
 ```
 
-Then set `SMARTWIZZ_API_KEY` in `$conf/.env`, and edit `$conf/smartwizz.json` if you use a provider other than the preconfigured Gemini.
+On Windows, copy the same files into `%APPDATA%\smartwizz`. Set the provider key in the protected user environment or .env file. Update the copied ruleset deliberately when upgrading.
 
-**3. Run it** inside any Git repo:
-
-```sh
-smartwizz check
-```
-
-**Update:** pull, then repeat step 1. The version comes from the commit count, so commit local changes first; at an unchanged version the update does nothing. Step 2 is not needed again, but copy `rulesets/` again if you want newer rules.
-
-**Uninstall:** `dotnet tool uninstall --global MyCaravam.SmartWizz`, and delete the config directory if you no longer need it.
+Uninstall: `dotnet tool uninstall --global MyCaravam.SmartWizz`. Remove the user configuration if no longer needed; see [local storage](local-storage.md) for metadata deletion.
 
 ## VS Code
 
