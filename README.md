@@ -1,451 +1,125 @@
 # SmartWizz
 
-Small, lean AI code reviews. SmartWizz reads a PR or staged diff from a local Git checkout, asks one OpenAI-compatible model for **bugs, security issues, and missing tests**, validates what comes back, and prints a report — optionally posting inline threads to Azure DevOps Server.
+A lean AI-powered code reviewer for developers and CI pipelines. SmartWizz reviews Git changes against a configurable engineering standard, reports actionable bugs, security issues and missing tests, and validates model findings before reporting or publishing them.
 
-It never runs PR code, never fixes, approves, or merges anything, and is report-only by default.
+One shared review engine supports local checks, GitHub Actions and Azure DevOps. It never executes reviewed code, applies fixes, approves or merges PRs. Publication is explicit.
 
 ## Requirements
 
-- .NET 10 SDK
-- `git`
-- An OpenAI-compatible chat-completions endpoint: public (OpenAI, Gemini) or internal (vLLM, Ollama, LiteLLM, Azure OpenAI, ...)
+- .NET 10 SDK (see [global.json](global.json)) and Git.
+- An authorized OpenAI-compatible chat-completions endpoint and credentials if required.
+- The .NET global tool directory on PATH.
 
-## Usage
+## Install
 
-```sh
-cp .env.example .env                       # put SMARTWIZZ_API_KEY in it (git-ignored)
-# smartwizz.json is preconfigured for Gemini (Google AI Studio key); see smartwizz.example.json for others
-
-dotnet run --project src/SmartWizz -- --repo ../my-repo --base origin/main
-```
-
-| Option | Meaning |
-|---|---|
-| `--base <ref>` | Branch/commit the PR merges into (alternative to `--pr`). Diff is `base...head` (from the merge-base). |
-| `--pr <id>` | Resolve an Azure DevOps PR using the installed `ado` CLI, fetch its refs, and review its exact commit IDs. |
-| `--staged` | Review staged Git index changes locally, without a commit or PR. Excludes unstaged/untracked changes. |
-| `--head <ref>` | PR head, default `HEAD`. |
-| `--since <sha>` | Optional full SHA of the last successfully reviewed commit. Review only changes since it when it is an ancestor of head; otherwise fall back to a full PR review. |
-| `--full-review` | Review the complete PR diff even when `--since` is given. Earlier findings are still re-checked. |
-| `--state-in <path>` | Previous review checkpoint (requires `--since` and `--state-out`). See [Incremental review](#incremental-review). |
-| `--state-out <path>` | Write the review checkpoint after a fully successful run. |
-| `--repo <path>` | Git checkout, default current directory. |
-| `--config <path>` | Config file, default `./smartwizz.json` if present. |
-| `--verbose` | List individual untracked paths and per-request latency, prompt size, token usage (when supplied), and finding counts. |
-| `--plain` | Disable rich Spectre.Console rendering; automatically used for CI, redirected streams, `NO_COLOR`, and `TERM=dumb`. |
-| `--json <path>` | Also write the JSON report. |
-| `--format <name>` | Console output: `console` (default) or `problems`, one line per finding for editors. See [VS Code](#vs-code). |
-| `--fail-on <severity>` | Exit 1 if any finding is at/above `low`/`medium`/`high`/`critical`. |
-| `--annotated-diff <path>` | Write the PR unified diff with AI review comments directly after affected added lines; report-only. |\n| `--publish` | Post findings as Azure DevOps PR threads. |
-
-**Exit codes:**
-
-| Code | Meaning |
-|---|---|
-| `0` | Review completed; nothing at/above `--fail-on` (or no threshold) |
-| `1` | Review completed; findings at/above `--fail-on` |
-| `2` | Execution failure. The message names the kind: `[usage]`, `[configuration]`, `[git]`, `[provider]`, `[timeout]`, `[invalid-model-output]`, `[publish]` |
-| `130` | Cancelled (Ctrl+C / SIGTERM). Outstanding requests stop, git is killed, and no partial review is reported. A second signal exits immediately. |
-
-A failure in any request batch fails the whole run; a partial review is never reported as complete.
-
-## Quick local check
-
-[Install the `smartwizz` command](#install-as-a-net-tool) once. Then, inside any Git repo:
+Build from a trusted SmartWizz checkout:
 
 ```sh
-smartwizz check            # all uncommitted changes to tracked files
-smartwizz check --staged   # only what is staged
-smartwizz check --plain    # line-based progress and report
-smartwizz check --verbose --json review.json # request performance metrics
+VERSION=0.1.$(git rev-list --count HEAD)
+dotnet pack src/SmartWizz -c Release -p:Version="$VERSION" -o ./nupkg
+dotnet tool update --global MyCaravam.SmartWizz --source ./nupkg --version "$VERSION"
 ```
 
-`check` sends those changes to the provider configured in `~/.config/smartwizz/smartwizz.json`. It never reads `smartwizz.json` or `.env` from the repo being reviewed, so a cloned repo cannot redirect your API key. Untracked files are listed but not reviewed; `git add -N <path>` includes them. `--json`, `--annotated-diff` and `--fail-on` work as usual.
+Create a user configuration directory: `~/.config/smartwizz` (or `$XDG_CONFIG_HOME/smartwizz`) on Linux, `%APPDATA%\smartwizz` on Windows. Copy [smartwizz.json](smartwizz.json) and the [rulesets](rulesets/) directory there. Configure the provider and set `SMARTWIZZ_API_KEY` in your environment or protected user .env file. See [local setup](docs/local-usage.md) and [configuration](docs/configuration.md).
 
-## Install as a .NET tool
+To update, pull the desired revision and repeat the install commands; update the copied ruleset separately when appropriate.
 
-SmartWizz is not on NuGet, so you build the package from a clone. You need the .NET 10 SDK, `git`, and `~/.dotnet/tools` (`%USERPROFILE%\.dotnet\tools` on Windows) on your `PATH`.
+## Local review
 
-**1. Build and install.** Run from the SmartWizz checkout:
-
-```sh
-dotnet pack src/SmartWizz -c Release -p:Version=0.1.$(git rev-list --count HEAD)
-dotnet tool update --global --add-source src/SmartWizz/bin/Release MyCaravam.SmartWizz
-```
-
-`dotnet tool update` installs the tool if it is missing.
-
-**2. Create the user config.** `smartwizz check` reads only this directory. On Windows it is `%APPDATA%\smartwizz`.
-
-```sh
-conf="${XDG_CONFIG_HOME:-$HOME/.config}/smartwizz"
-mkdir -p "$conf"
-cp -r smartwizz.json rulesets "$conf/"
-cp .env.example "$conf/.env"
-chmod 600 "$conf/.env"
-```
-
-Then set `SMARTWIZZ_API_KEY` in `$conf/.env`, and edit `$conf/smartwizz.json` if you use a provider other than the preconfigured Gemini.
-
-**3. Run it** inside any Git repo:
+From your application repository:
 
 ```sh
 smartwizz check
+smartwizz check --staged
+smartwizz check --stateless --verbose --json review.json
 ```
 
-**Update:** pull, then repeat step 1. The version comes from the commit count, so commit local changes first; at an unchanged version the update does nothing. Step 2 is not needed again, but copy `rulesets/` again if you want newer rules.
+The first command reviews uncommitted tracked changes; the second reviews staged changes only. Untracked files are not reviewed unless added to the index (intent-to-add is sufficient for working-tree review). `--stateless` disables optional local history and cache.
 
-**Uninstall:** `dotnet tool uninstall --global MyCaravam.SmartWizz`, and delete the config directory if you no longer need it.
+Use `--format problems` for editor integration. See [local usage and VS Code](docs/local-usage.md).
 
-## VS Code
+## CI review
 
-SmartWizz can show `smartwizz check` findings in the editor, as squiggles and entries in the Problems panel. It uses a VS Code task, so no extension is needed.
-
-**Set it up.** [Install the `smartwizz` command](#install-as-a-net-tool), then copy the task into the repo you want to review, from that repo's root:
+Review a committed range using trusted configuration:
 
 ```sh
-mkdir -p .vscode && cp /path/to/smartwizz/.vscode/tasks.json .vscode/
+smartwizz --base origin/main --head HEAD --config /path/to/trusted/smartwizz.json --json review.json --fail-on high
 ```
 
-If the repo already has a `.vscode/tasks.json`, add the `SmartWizz: check` entry to its `tasks` array instead. Open the repo root as your VS Code folder. On Windows with WSL, use a WSL window so the task finds the command.
-
-**Run it.** Choose **Terminal > Run Task > SmartWizz: check**. To put it on a key, open **Preferences: Open Keyboard Shortcuts (JSON)** and add:
-
-```json
-{ "key": "ctrl+alt+r", "command": "workbench.action.tasks.runTask", "args": "SmartWizz: check" }
-```
-
-**Read the results.** Affected lines get a squiggle, and hovering shows the problem and any suggested fix. `Ctrl+Shift+M` opens the Problems panel, and `F8` jumps to the next finding.
-
-| Finding severity | VS Code level |
-|---|---|
-| critical, high | Error |
-| medium | Warning |
-| low | Info |
-
-**How it works.** The task runs `smartwizz check --format problems`, which prints one line per finding:
-
-```
-src/Cart.cs:42:error: Total ignores discount (wrong-calculation): Uses the subtotal. Suggested fix: return subtotal - discount; [fp 517d4ce89541b97a]
-```
-
-The `problemMatcher` in `tasks.json` splits each line into file, line number, severity and message, and VS Code turns the result into diagnostics. Line numbers match the files in your editor because `check` reviews the working tree. Anything else the command prints, such as the summary or an untracked-files note, stays in the task's terminal.
-
-**Limits:**
-
-- Findings are a snapshot. Re-run the task after editing to refresh them.
-- Each finding marks its whole first line, even when it covers several lines.
-- The task reviews uncommitted changes. To review only staged changes, add `"--staged"` to `args`.
-- Fixes are shown, not applied. A multi-line fix is flattened onto one line, so run `smartwizz check` in a terminal to see it formatted.
-
-## Review locally before committing
-
-Stage the changes you want reviewed with `git add -p`. Then run SmartWizz from its checkout (configured as above):
-
-```sh
-dotnet run --project src/SmartWizz -- --repo ../my-repo --staged
-```
-
-Only staged changes are sent to the configured AI provider. Unstaged and untracked files are ignored. The review does not change files, create commits, or publish comments. Use `--json` or `--annotated-diff` for optional local reports; `--staged` is intentionally incompatible with PR publication, `--since`, and checkpoint options.
-
-## Review an Azure DevOps PR with ado-devops (report-only)
-
-Install and authenticate [ado-devops](https://github.com/mycaravam-crypto/ado-devops)
-and run SmartWizz **inside a clone of the PR's repository**:
-
-```sh
-# SMARTWIZZ_ENDPOINT / SMARTWIZZ_MODEL configure the internal AI endpoint.
-# SMARTWIZZ_API_KEY supplies the model gateway token.
-smartwizz --repo . --pr 142 --annotated-diff review-142.diff --json review-142.json
-```
-
-SmartWizz invokes `ado pr context 142` to resolve the PR's exact target/source
-commit IDs, then `ado pr diff 142` to fetch their Git objects. No branch checkout
-is required, and your working tree is not modified. The resulting `review-142.diff`
-contains inline `# REVIEW` annotations, so it is **not** a git-applicable patch.
-
-The CLI performs **no Azure DevOps comment writes by default**. To publish validated
-findings explicitly, supply `--publish` along with configured Azure DevOps collection
-and project and an appropriate Azure DevOps token. For review-first workflows, inspect
-the generated diff before a separate publication run. Publishing is not a selective
-approval flow in this version.
-
-`--base` and `--pr` are mutually exclusive; `--pr` also cannot be combined
-with `--head`. The internal provider can be an OpenAI-compatible endpoint such as
-Open WebUI's `/api/chat/completions`.
-
-## Incremental review
-
-Without `--since`, SmartWizz reviews the full PR diff. With `--since <40-character-SHA>`, it reviews only the changes since that previously reviewed commit. To track findings across runs, pass `--state-out <path>` on every run, and `--since <sha> --state-in <path>` from the second run on. The checkpoint (version 2) records the reviewed head SHA, a hash of the review configuration, and every finding with its status:
-
-- **open**: reported and not yet verified as fixed. Unresolved findings from earlier runs stay in the `--fail-on` gate.
-- **resolved**: a re-check of the *current* code confirmed the fix, or the file no longer exists. A finding is never resolved just because a rerun did not report it again.
-- **regressed**: reported again after it was resolved. It counts toward the gate like an open finding.
-
-On each run, earlier unresolved findings that were not reported again are re-checked if their file changed (after a complete review, all of them are). The re-check sends the model the finding and the current code around it, using a separate prompt (`prompts/revalidate.md`). Only an explicit, explained `resolved` verdict resolves a finding. Missing, contradictory or unknown verdicts keep it open, and malformed output fails the run. Findings in untouched files are carried forward without a model call. Changes that only arrived by merging the base into the PR are not reviewed.
-
-SmartWizz runs a complete review instead of an incremental one when:
-
-- `--full-review` is given (for example a security or release review),
-- the checkpoint is missing, corrupt or from an older version,
-- the review configuration, prompts or ruleset changed,
-- the checkpoint SHA does not match `--since`,
-- `--since` is not in the clone or not an ancestor of the head (force-push or rebase).
-
-Earlier unresolved findings are still re-checked after a complete review, so none are silently dropped. The checkpoint is written only as the last step of a fully successful run. A failed review, re-check or publish never advances the baseline. The console report and the JSON report (`mode`, `modeReason`, `trackedFindings`) show which mode ran and why.
-
-The reusable GitHub Actions workflow stores the checkpoint as a per-PR artifact and restores the newest one. It uses only checkpoints that this repository's own runs stored for the PR's branch, where the storing run reviewed exactly the commit the checkpoint names. Fork PRs therefore always get complete reviews. If checkpoints cannot be read (for example because the caller does not grant `actions: read`), the workflow warns and runs a complete review. Runs for the same PR are serialized by a concurrency group, and a queued run is replaced by a newer push. Set the `full-review` input to force a complete review.
-
-## Configuration
-
-See [`smartwizz.example.json`](smartwizz.example.json). Notable settings:
-
-- `review.contextLines` — unchanged lines shown around each change (default 10).
-- `review.maxCharsPerRequest` — files are packed into requests up to this size; a single larger file is skipped and listed, never truncated.
-- `review.minConfidence` — findings below this are dropped (default 0.5). The prompt also tells the model this floor, so it doesn't write out findings that would be dropped.
-- `review.suggestFixes` — `false` stops asking the model for `suggestedFix`, the longest output field (default `true`).
-- `review.exclude` — glob patterns matched against path and file name; replaces the built-in list (lockfiles, minified, generated, migrations).
-- `provider.temperature` — `null` to omit for models that reject it.
-- `provider.maxRetries` (default 2) and `provider.fallbackModels` (default none) — see *Overload handling* below.
-- `provider.jsonSchema` — `true` constrains every reply to the finding format with `response_format: json_schema` (strict), so the model cannot return malformed JSON. Default `false`, because server support varies: llama.cpp server, vLLM, Ollama 0.5+, LM Studio, OpenAI and Gemini accept it on the chat-completions endpoint. If the server answers 400, the run fails with a `[configuration]` error naming this setting; it never silently retries without the schema. Replies are still fully validated (paths, lines, rule IDs, confidence).
-- `review.ruleset` — path (relative to the config file) to the [ruleset](rulesets/README.md) of the coding guide to check compliance with (default `rulesets/engineering-standard.json`). One file per guide: point this at another file to review against another guide. Only checks whose triggers match the added lines are sent; findings may only use the IDs of checks sent in that request. The report records `rulesetName`, `rulesetVersion` and `rulesetSha256`. Keep the file in the trusted SmartWizz checkout in CI, never the untrusted PR.
-- `review.maxChecksPerRequest` — `0` (default) sends all applicable checks with the review. A positive number sends at most that many per request, highest severity first; the rest go to extra standards-only requests over the same diff (or, when their checks apply to well under half of it, only the files they apply to). Nothing is dropped. `requests` in the JSON report counts the calls.
-- `review.guidelines` — legacy alternative to `ruleset`: a Markdown guide pasted whole into the prompt. Only sensible for large models; not combinable with `ruleset`.
-
-Secrets are read only from the environment. For local runs you can put them in a git-ignored `./.env` (see [`.env.example`](.env.example)). Variables that are already set take precedence.
-
-| Variable | Used for |
-|---|---|
-| `SMARTWIZZ_API_KEY` | Provider bearer token |
-| `SMARTWIZZ_AZDO_TOKEN` or `SYSTEM_ACCESSTOKEN` | Azure DevOps PAT / pipeline token |
-
-## Overload handling
-
-Hosted models regularly answer "high demand" (503) or "rate limited" (429), and in CI that would fail a PR for reasons unrelated to the code. So:
-
-1. **Retry:** on 429, 500, 502, 503, 504 or a dropped connection, the same model is retried up to `provider.maxRetries` times. The wait follows the server's `Retry-After`, otherwise 2 s then 4 s, capped at 30 s.
-2. **Fall back:** if the model stays unavailable, the next entry in `provider.fallbackModels` is tried, with the same endpoint and key. Capacity is usually per model, so this tends to succeed immediately.
-3. **Never mask real errors:** 400, 401, 403, 404 (wrong key, bad request, unknown model), timeouts and malformed answers fail at once and are not retried.
-
-Every retry and fallback is logged to stderr. The report and JSON name the models that actually reviewed (`Reviewed by:` / `"models"`), because a fallback model may review differently.
-
-## Output
-
-When the model can express a fix within the reported lines, the console report shows it under the finding and the JSON includes it as `suggestedFix`. Suggestions are never applied.
-
-Console report plus, with `--json`:
-
-```json
-{
-  "version": 1,
-  "reviewedFiles": 1,
-  "findings": [
-    { "ruleId": "wrong-operator", "severity": "high", "title": "add() subtracts",
-      "message": "Uses - instead of +.", "filePath": "calc.py", "startLine": 2,
-      "confidence": 0.95, "fingerprint": "517d4ce89541b97a" }
-  ],
-  "skippedFiles": [ { "path": "package-lock.json", "reason": "excluded" } ],
-  "rejected": [ "calc.py:99: line not in diff" ]
-}
-```
-
-`endLine` appears when a finding spans lines. Findings from the model are rejected (and listed) if:
-- the file isn't in the reviewed diff (paths like `/x`, `./x`, `b/x`, `x\y` are normalized first),
-- `startLine` isn't a line this change **added** (unchanged context lines don't count),
-- `endLine` is before `startLine` or leaves the contiguous lines shown in that hunk,
-- or a field is missing or invalid.
-
-Unparseable model output fails the run with exit 2 `[invalid-model-output]`.
-
-The `fingerprint` hashes rule, path, and the *content* of the start line, so it survives unrelated line shifts. It is used to dedupe within a run and to avoid re-posting the same thread on reruns.
-
-## Azure DevOps Server
-
-`--publish` posts one active thread per new finding on the PR's right-hand (new) side. Threads already carrying a finding's fingerprint are skipped.
-
-Connection settings come from `azureDevOps.*` in the config, falling back to the pipeline variables `System.CollectionUri`, `System.TeamProject`, `Build.Repository.ID`, and `System.PullRequest.PullRequestId`. `apiVersion` defaults to `6.0` (Server 2020+); use `5.0` for Server 2019. `timeoutSeconds` (default 60) bounds each request. The token needs only code read and PR thread read/write.
-
-Deduplication fails closed. The existing threads are read before anything is posted, and if that lookup fails, times out, or returns an unexpected shape, nothing is posted. The threads List API documents no paging in any version (it returns all threads). If a server paginates anyway (`x-ms-continuationtoken`), or `count` doesn't match the threads received, SmartWizz can't prove the list is complete, so it refuses to publish rather than risk duplicates. If a POST fails partway, the threads already posted are recognised on the next run.
-
-See [`pipelines/azure-pipelines.yml`](pipelines/azure-pipelines.yml) for a branch-policy build. It reviews `origin/<target>...HEAD^2`, the PR source tip, so line numbers match the PR view.
-
-## Internal / self-hosted model APIs
-
-Any server that speaks the OpenAI chat-completions format works: vLLM, Ollama, LiteLLM, TGI, LM Studio, or an Azure OpenAI gateway. Nothing about the code is public-API specific.
-
-```json
-{
-  "provider": {
-    "endpoint": "https://llm.internal.example/v1/chat/completions",
-    "model": "your-internal-model",
-    "apiKeyHeader": "api-key"
-  }
-}
-```
-
-- **Auth:** by default the key is sent as `Authorization: Bearer <key>`. Set `provider.apiKeyHeader` to send the raw key in another header (e.g. `api-key` for Azure OpenAI). Leave `SMARTWIZZ_API_KEY` unset for servers without auth.
-- **Endpoint/model per environment:** `SMARTWIZZ_ENDPOINT` and `SMARTWIZZ_MODEL` override the config file.
-- **Internal CA:** add the CA to the machine's trust store, or on Linux point `SSL_CERT_FILE` / `SSL_CERT_DIR` at it. There is deliberately no "skip TLS verification" switch.
-- **Proxy:** `HTTPS_PROXY` / `NO_PROXY` are honoured. Internal hosts usually belong in `NO_PROXY`.
-- **Plain HTTP:** works, but SmartWizz warns, because code and key travel unencrypted.
-- **Network reach:** the machine running SmartWizz must reach the endpoint. In GitHub that means a self-hosted runner (see below); GitHub-hosted runners can't see your internal network.
-
-## Small local models
-
-SmartWizz is built to work with local models below ~30B parameters. Start from [`smartwizz.local.example.json`](smartwizz.local.example.json): copy it to `smartwizz.json` and set your model.
-
-What each piece does for a small model:
-
-- **The ruleset** sends only checks whose triggers match the change, as short instructions with a Bad/Good example. A small change usually gets 0–3 checks instead of the whole guide.
-- **`maxChecksPerRequest`** keeps each prompt to a few checks. Larger changes get extra standards-only requests rather than one long list the model half-follows. A batch takes `applicable checks ÷ 8` requests, rounded up (at most 4 with the default ruleset).
-- **`maxCharsPerRequest` / `contextLines`** keep the diff small enough for the context window. One request is roughly the system prompt (~1.7k characters), the diff batch, and the task (~1k characters plus ~450 per check).
-- **Prompt layout for prefix caching:** every request of a batch starts with the same system prompt and the same diff block; the pass-specific task and its checks come last, after the diff's end marker. Servers that reuse a matching prompt prefix (llama.cpp's prompt cache, vLLM's automatic prefix caching, Ollama) then process the diff once per batch rather than once per pass. Keep prompt caching enabled on the server.
-- **Follow-up passes** send only the files their checks apply to when that is under half of the batch; otherwise they resend the full diff, which a prefix cache makes nearly free.
-- **Context window:** make sure the server gives the model enough context, or it silently drops the start of the prompt. With the example values, allow at least 8k tokens. Ollama is configured by `OLLAMA_CONTEXT_LENGTH` or the model's `num_ctx`; the chat-completions API cannot set it.
-- **Output:** the model must answer with JSON. The example enables `provider.jsonSchema`, which makes the server constrain output to the finding schema (llama.cpp server, vLLM, Ollama 0.5+ and LM Studio support it); follow-up passes may then only produce the check IDs they were sent. On a server without support, set it to `false`. If a model still often fails (`[invalid-model-output]`), try a larger or code-tuned model before loosening anything else.
-- **Lean output:** generating tokens is usually the slowest step on local hardware, so the example sets `suggestFixes: false`, and the model is told the `minConfidence` floor rather than writing out findings that get dropped.
-
-Measure on your own model with the [benchmark](benchmarks/README.md) before relying on it. `tools/ruleset.py preview` shows what a diff will send.
-
-## GitHub
-
-SmartWizz ships a reusable workflow. Add this file to any repository as `.github/workflows/smartwizz.yml`:
+### GitHub Actions
 
 ```yaml
 name: SmartWizz
 on: pull_request
-
 jobs:
   smartwizz:
-    # Fork PRs get no secrets and a read-only token: skip them.
     if: github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
-      pull-requests: write                # inline review comments
-      actions: read                       # restore the previous review checkpoint
+      pull-requests: write
+      actions: read
     uses: mycaravam-crypto/smartwizz/.github/workflows/review.yml@main
     with:
-      fail-on: high                       # optional; omit for report-only
-      # comments: false                   # job summary + artifact only
-      # full-review: true                # ignore the checkpoint's baseline (security/release review)
-      # Internal API on a self-hosted runner:
-      # runner: '["self-hosted", "linux"]'
-      # endpoint: https://llm.internal.example/v1/chat/completions
-      # model: your-internal-model
+      fail-on: high
     secrets:
       SMARTWIZZ_API_KEY: ${{ secrets.SMARTWIZZ_API_KEY }}
 ```
 
-Then add the `SMARTWIZZ_API_KEY` secret to that repository (*Settings → Secrets and variables → Actions*), or once at organization level.
+Pin the workflow and matching `smartwizz-ref` to a trusted tag or commit for controlled upgrades. The reusable workflow supports inline comments, report artifacts and incremental PR checkpoints. Never use `pull_request_target` for reviewing untrusted changes.
 
-What each PR gets:
-- **Inline comments:** one PR review (`event: COMMENT`) with a comment on each new finding's line. It never approves and never requests changes. Comments sit on the finding's start line, which is always an added line; a multi-line range is named in the text, because a range could reach past GitHub's own diff context and get the whole review rejected.
-- **Job summary and artifact:** the full report in the job summary, plus a `smartwizz-report` JSON artifact.
-- **Required check:** with `fail-on`, the check fails and can be made required in branch protection.
+### Azure DevOps
 
-Reruns don't repeat comments. Existing review comments are read first (all pages), and findings whose fingerprint is already there are skipped. If that lookup fails, nothing is posted. `@mentions` in model text are neutralized, so a review can't ping people.
+Use the [pipeline example](pipelines/azure-pipelines.yml) or review a PR locally with the authenticated [ado-devops](https://github.com/mycaravam-crypto/ado-devops) CLI:
 
-The workflow reviews `base...head` of the PR and checks out SmartWizz itself for config and the engineering standard. Its token can read code and write review comments, nothing else. Outside Actions, `--publish-github` needs `GITHUB_TOKEN` (or `SMARTWIZZ_GITHUB_TOKEN`), `GITHUB_REPOSITORY`, `SMARTWIZZ_GITHUB_PR` and `SMARTWIZZ_GITHUB_SHA`, or the `gitHub.*` config keys.
+```sh
+smartwizz --pr 142 --json review.json
+```
 
-Pin `@main` to a tag or commit SHA if you want reviews to stay unchanged until you upgrade deliberately (also pass the same value as `smartwizz-ref`).
+Add `--publish` only when publication is intended and credentials are configured. See [CI integration](docs/ci-integration.md) for permissions, checkpoints and deduplication.
 
-Security notes:
-- Use `on: pull_request`, **never** `pull_request_target`. PRs from forks then get no secrets, so they can't extract the key; for those PRs the review just fails.
-- Anyone who can push a branch to the repository can change the workflow file, so they are trusted with the secret either way. That is the same boundary as any CI secret.
+### Quality gates
+
+| Exit code | Meaning |
+|---|---|
+| 0 | Completed; no finding at or above the configured threshold |
+| 1 | Completed; threshold exceeded or met |
+| 2 | Execution failure |
+| 130 | Cancelled |
+
+A failed request does not produce a completed partial review. Rejected findings and skipped files are reported; a passing gate is not proof of full detection or compliance.
+
+## Engineering standard and configuration
+
+[ENGINEERING_STANDARD.md](ENGINEERING_STANDARD.md) is generated from the canonical [rule catalog](rules/engineering-rules.json). Semantic review uses one configured [ruleset](rulesets/README.md); mechanical rules belong in compiler, analyzer and linter checks.
+
+Start with [smartwizz.example.json](smartwizz.example.json). Keep request concurrency at one until representative measurements justify increasing it. Pass size and suggested fixes are configurable; see [configuration](docs/configuration.md) and [benchmarks](benchmarks/README.md).
 
 ## Security
 
-- PR content is untrusted. The diff is wrapped in random-nonce markers, and the prompt tells the model to ignore instructions inside it. Every finding is validated against the diff.
-- Normal review sends the prompt, applicable ruleset instructions and diff to the model. Environment values and authentication tokens are not included in model messages; source code itself may contain sensitive data. Use a provider approved for the reviewed code.
-- Optional local history and cache store metadata in two unencrypted SQLite databases outside the checkout, not source, paths, prompts, messages or fixes. HMAC identities are not encryption. The key is separate (Windows current-user DPAPI or `SMARTWIZZ_HISTORY_KEY`); protect the local account and storage directory. An existing key can enable local storage under current defaults; `--stateless` disables it and CI does not use it.
-- Explicit `--revalidate` may send bounded visible source excerpts associated with historical findings (including diff context) and opaque finding IDs to the configured provider. Verdicts are advisory; local history does not suppress findings or determine CI checkpoint state.
-- Git runs with `--no-ext-diff --no-textconv`, so repository config can't execute commands. No other process is started.
-- **Keep `smartwizz.json` out of the reviewed repository in CI.** A PR that can edit it can point `provider.endpoint` at its own server and receive `SMARTWIZZ_API_KEY`.
-- Published comments are model-generated text and are labelled as AI output. Treat them like any other untrusted review comment.
-- Tokens are sent only in request headers and never logged.
+Use an approved provider: source and applicable review instructions are transmitted to it. Reviewed code is untrusted, and generated findings and fixes require human judgment. Keep CI configuration and rulesets in a trusted checkout, never the untrusted PR. Local metadata storage is disabled in CI; its databases are not encrypted. See [security](docs/security.md) and [local storage](docs/local-storage.md).
 
-## Engineering standard at a glance
+## Documentation
 
-[ENGINEERING_STANDARD.md](ENGINEERING_STANDARD.md) is generated from the canonical [rules/engineering-rules.json](rules/engineering-rules.json) using `python3 tools/engineering_rules.py --write`. CI verifies synchronization. Its requirements are mandatory for production code, tests, configuration, build scripts, CI and AI-assisted changes. This table is a **summary, not a replacement** for the full normative text. Rules that cannot be checked mechanically still require a review.
-
-| Section | Required rule (summary) | Verification focus |
-|---|---|---|
-| 1. Type safety and deterministic behavior | Explicit types at public boundaries; immutable state by default; strict nullability; typed domain states; validate untrusted values. | Compiler/nullability checks, analyzers, edge-case tests, reviewer |
-| 2. Code hygiene and production readiness | Precise names, useful comments only, no obsolete/TODO-only code, debug output, unused code, secret logging or unjustified dependencies. | Formatter, static analysis, secret scanning, reviewer |
-| 3. Functions, modularity and DRY | Single responsibility, isolate side effects, avoid duplicated business rules and needless abstractions; name constants and validate configuration. | Architecture/code review, focused unit tests |
-| 4. Error handling and state safety | Validate at boundaries; never silently swallow errors; make state transitions atomic where needed; dispose resources; propagate cancellation and enforce timeouts. | Failure-path, concurrency and cancellation tests; reviewer |
-| 5. Architecture and dependency boundaries | Stable domain logic must not depend on transport or providers; expose small explicit contracts; separate concerns without overengineering. | Dependency/architecture review and integration tests |
-| 6. API, serialization and external data | Explicit schemas, validated deserialization and AI output, identifiers, paths and ranges; handle malformed/unsupported data without silent coercion. | Contract, malformed-input and negative tests |
-| 7. Security by default | Least privilege; never execute untrusted PR content or obey embedded instructions; prevent traversal/injection, unsafe deserialization and secret disclosure; fail closed. | Security review, adversarial tests, CI permission audit |
-| 8. Testing and verification | Test business rules, boundaries, edge cases and failures deterministically; use integration tests for contracts; run relevant checks and disclose failures. | Automated test suite, coverage of changed behavior, CI |
-| 9. Language-specific enforcement | .NET: nullable, analyzers as errors, responsible `async`/`await`, cancellation and disposal. TypeScript: strict types, `unknown` narrowing, exhaustive unions and mandatory `@/` aliases for cross-directory internal imports (instead of `../`/`../../`). | `dotnet build`, `dotnet format`, TypeScript checks where applicable |
-| 10. Automated enforcement | Run standard formatters, compilers, linters and analyzers in CI; block violations; justify narrow suppressions, avoid a custom rule engine. | Required CI checks and ruleset review |
-| 11. AI-assisted change workflow | Inspect architecture first, implement the smallest focused increment, avoid unrelated refactors, verify and report limitations before completion. | PR diff, engineering review and verification evidence |
-| 12. Definition of Done | Correct behavior, types/nullability, controlled errors/side effects, security, meaningful tests, green checks and no speculative complexity. | PR completion checklist and review |
-
-**Benchmarking the LLM reviewer:** See [Reviewer benchmark methodology](benchmarks/README.md). The seeded-defect PR must stay unmerged. Its independent answer key is maintained separately so the model cannot simply copy expected findings from the PR diff. A passing compilation check alone does **not** prove that the semantic rules are applied.
+| Topic | Reference |
+|---|---|
+| Architecture, principles and scope | [Architecture](docs/architecture.md) |
+| CLI, installation and editor integration | [Local usage](docs/local-usage.md) |
+| GitHub, Azure DevOps, checkpoints and gates | [CI integration](docs/ci-integration.md) |
+| Provider, ruleset and performance settings | [Configuration](docs/configuration.md) |
+| Reports, finding validation and coverage | [Review output](docs/review-output.md) |
+| Trust boundaries and credentials | [Security](docs/security.md) |
+| Optional history, cache and lifecycle | [Local storage](docs/local-storage.md) |
+| Build, tests and Definition of Done | [Development](docs/development.md) |
+| Evaluation and measured decisions | [Benchmarks](benchmarks/README.md) |
 
 ## Development
 
-Same checks as CI (`.github/workflows/ci.yml`):
-
 ```sh
-python3 tools/engineering_rules.py --check  # generated Markdown has not drifted
-python3 tools/ruleset.py check --catalog rules/engineering-rules.json  # ruleset valid and covers every llm rule
-dotnet format --verify-no-changes   # whitespace + .editorconfig style; run `dotnet format` to fix
-dotnet build -c Release             # analyzers + code style enforced, warnings are errors
+python3 tools/engineering_rules.py --check
+python3 tools/ruleset.py check --catalog rules/engineering-rules.json
+dotnet format --verify-no-changes
+dotnet build -c Release
 dotnet test -c Release
 ```
 
-- `global.json` pins the SDK.
-- `rules/engineering-rules.json` is the human-facing engineering standard (it generates `ENGINEERING_STANDARD.md`). The model sees its `llm` rules only through `rulesets/engineering-standard.json`; mechanical rules belong in compiler, analyzer and linter checks. Ruleset name, version and SHA-256 identify each benchmark run.
-- `.editorconfig` encodes the mechanical rules of [`ENGINEERING_STANDARD.md`](ENGINEERING_STANDARD.md): explicit types unless obvious, no unused code, readonly fields.
-- Tests stub all HTTP and need no credentials. They make no live model or Azure DevOps calls.
-- One test starts a fake `git` (Linux only) to prove cancellation kills the git process.
-
-## Large PR performance
-
-Set `review.maxParallelRequests` to an integer from 1 to 8 (default 1). Independent file batches may overlap, while passes within a batch remain sequential. Start with 2 and compare against 1, 4 and 8 on the same immutable PR diff. Use `--verbose --json review.json` to capture timings, attempts, reasoning tokens when returned by the provider, and effective output throughput. Cumulative request time can exceed wall time with concurrency. Compare finding recall, severity and fingerprints as well as latency; do not increase concurrency if timeout or retry rates rise. Use separate report files outside the reviewed checkout. Existing contextLines, maxCharsPerRequest, maxChecksPerRequest and suggestFixes settings can be tuned independently. Changing review configuration may invalidate an existing incremental checkpoint scope.
-
-## Optional local finding history
-
-Run `smartwizz check --remember` to record metadata in LocalApplicationData/smartwizz/data/findings-v1.db. Provide a separate, stable, randomly generated 32-byte Base64 `SMARTWIZZ_HISTORY_KEY` environment variable (not the API key). Keep it outside the database, preferably in a user-approved secret store. A lost or rotated key creates a new identity namespace. The store uses HMAC-SHA-256 for repository identity, scope, file paths and code anchors. It stores only hashes, an allowlisted category, line ranges, severity, commit SHA, timestamps and observation counters. No model text, code, prompts or fixes are stored. The database is not encrypted: protect the directory with OS access controls and do not sync it externally. Delete the database while SmartWizz is not running to clear history. History is local to a checkout, review mode and ruleset/guideline policy. Operational configuration and prompt changes no longer change the history policy scope; an existing legacy scope can be adopted if its exact configuration can be reconstructed. Other legacy scopes are not consolidated automatically. Source context changes or ambiguous repeated statements may still create a new identity. Historical observations are advisory, not verified open/resolved status. Fresh reviews report earlier findings not confirmed in the current inspection separately as unverified. An exact historical anchor match in added lines is evidence of unchanged source context, not proof of an active defect; missing, ambiguous, skipped or unchecked anchors never establish resolution. Anchor matching is bounded to 10,000 candidate-line checks per run, uses existing keyed metadata and the reviewed diff, and makes no additional provider request. JSON includes the historical records and their evidence status; console output includes counts. Cached reviews do not infer historical omissions. Historical records do not affect current-finding quality gates. For unique exact historical anchors in reviewed C# added lines, narrow local lexical checks corroborate direct quoted credential assignments, inclusive-length loops and SQL string construction. JSON exposes patternEvidence (pattern-present, pattern-not-confirmed, not-checked); the console summarizes matching patterns. These advisory checks do not establish semantic correctness, increment detection counters, change lifecycle status or make additional provider requests. Unsupported categories, long lines and obvious comment lines are not checked. History alone still runs a fresh review; no automatic suppression. Existing JSON/annotated-diff/checkpoint exports are separate and may contain sensitive code or text. Direct quoted credential assignments in visible C#-style source are best-effort redacted from finding text, not a guarantee that all secrets are detected. Historical aliases for broad standard rules are reconciled only at matching source anchors and line locations with supporting code evidence; this may replace old advisory persistent IDs with their canonical ID, while legacy publication/checkpoint fingerprints are unchanged. Local history defaults on after consent through an existing key, an explicit CLI enable flag or trusted user configuration. A missing key or storage failure leaves the review unchanged.
-
-The model may quote the exact added source line in its response. SmartWizz checks a unique same-file added-line match before relocating a finding, rejects ambiguous or unmatched evidence, and discards the suggested fix and end-line range when relocating. Older responses without source evidence retain line-number validation. Source evidence is not stored in the history or cache.
-
-### Targeted historical provider revalidation
-
-Use `smartwizz check --revalidate --verbose --json review.json` with local history enabled outside CI. This forces a fresh review and submits up to five unverified historical findings with unique exact anchors, highest severity first, in one additional logical provider request (retries and fallbacks may add HTTP requests). Each excerpt is limited to 4,000 characters and 17 visible lines. The configured provider receives source excerpts and opaque historical IDs; use only an authorized provider. Verdicts are advisory: supported, not-supported or inconclusive. They do not change lifecycle state, observations or quality gates and are not persisted in SQLite. Missing, duplicate or invalid verdicts are inconclusive. Additional timing and token metrics are available in JSON. The option is incompatible with --cache, --stateless and --no-remember.
-
-### Explicit finding resolution (local history)
-
-After independently verifying a correction, export a fresh report with `smartwizz check --no-cache --json review.json`. Obtain the full 64-character persistent finding ID from the current or historical finding metadata in the JSON report, then use:
-
-```sh
-smartwizz check --resolve-id "$FINDING_ID" --confirm-resolved
-```
-
-The operation records a human attestation, not automated proof of correction. It requires enabled local history outside CI and the matching checkout, review mode and policy scope. For staged history, also pass `--staged`. It does not run the provider, modify source code or change current-finding quality gates. Unknown IDs, shortened IDs and duplicate resolutions are rejected. Resolution and rediscovery events are recorded transactionally with the finding ID, HEAD revision and UTC timestamp. The local database audit is not tamper-evident and HEAD does not identify uncommitted working-tree contents. Run a fresh review with `--no-cache` after resolution; old cached metadata may still contain the historical detection. A fresh accepted detection of the same resolved identity becomes regressed. Missing detections never imply resolution.
-
-### Optional exact-input local review cache
-
-```bash
-smartwizz check --remember --cache --verbose --fail-on medium
-```
-
-The separate LocalApplicationData/smartwizz/data/review-cache-v1.db stores only signed, allowlisted metadata (file ordinal, line range, rule ID, severity, confidence, counters). It contains no file paths, source, diff, descriptions, fixes, prompts or raw responses. It uses the same separately held history key; an HMAC includes the exact diff, checkout, HEAD, mode, configuration/prompt/ruleset scope and build identity. Entries expire after 24 hours and expired rows are removed on eligible writes. Use `--no-cache` to invalidate the matching existing cache entry and force a fresh inspection. Changing a model behind an unchanged endpoint/model alias cannot be detected automatically; do not use cache for release or mandatory security gates requiring fresh inspection. A cache hit reproduces metadata only, not original explanations, rule provenance, timing or check-coverage statistics. It retains finding severity and quality-gate exit codes, looks up existing finding identities read-only without recording a second detection in history and reports how many LLM requests were avoided. A review with any rejected or skipped findings/files, fallback model, unsupported rule ID, or ambiguous legacy fingerprint is not cached. Only local check/staged mode is supported; PR review, publication, checkpoint and annotated diff workflows do not reuse the cache. A cache error falls back to a new inspection. Delete the cache database while SmartWizz is not running to clear it. The cache does not encrypt metadata at rest; restrict access and do not synchronize the file externally.
-
-### Local storage defaults
-
-After storage consent, `smartwizz check` and `smartwizz check --staged` enable history and the exact-input metadata cache by default. Consent is an existing history key, an explicit `--remember` / `--cache` flag, or an explicit setting in trusted user configuration:
-
-```json
-{
-  "storage": {
-    "remember": true,
-    "cache": true
-  }
-}
-```
-
-CLI overrides take precedence. `--no-cache` invalidates the matching cache entry when available and forces a fresh inspection, `--no-remember` prevents history writes, and `--stateless` disables both. CI (CI environment variable present) and PR reviews do not use local storage. Annotated diff output always requires a fresh review. Local --fail-on defaults to fresh unless caching is explicitly enabled. Implicit repository configuration cannot authorize storage initialization. Windows can initialize a random 32-byte history key using user-scoped DPAPI after explicit authorization. The encrypted key is stored separately in history-key.dpapi; an existing SMARTWIZZ_HISTORY_KEY takes precedence and is not automatically imported. On other platforms supply the key via a secure environment source. Without a usable key, fall back to a fresh review. The metadata databases themselves are not encrypted. Cache expiry remains fixed at 24 hours; configurable retention is future work.
+See [development](docs/development.md) for verification expectations. Open work is tracked in [GitHub issues](https://github.com/mycaravam-crypto/smartwizz/issues).
