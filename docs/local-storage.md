@@ -1,0 +1,44 @@
+# Local history and cache
+
+## Optional local finding history
+
+Run `smartwizz check --remember` to record metadata in LocalApplicationData/smartwizz/data/findings-v1.db. Provide a separate, stable, randomly generated 32-byte Base64 `SMARTWIZZ_HISTORY_KEY` environment variable (not the API key). Keep it outside the database, preferably in a user-approved secret store. A lost or rotated key creates a new identity namespace. The store uses HMAC-SHA-256 for repository identity, scope, file paths and code anchors. It stores only hashes, an allowlisted category, line ranges, severity, commit SHA, timestamps and observation counters. No model text, code, prompts or fixes are stored. The database is not encrypted: protect the directory with OS access controls and do not sync it externally. Delete the database while SmartWizz is not running to clear history. History is local to a checkout, review mode and ruleset/guideline policy. Operational configuration and prompt changes no longer change the history policy scope; an existing legacy scope can be adopted if its exact configuration can be reconstructed. Other legacy scopes are not consolidated automatically. Source context changes or ambiguous repeated statements may still create a new identity. Historical observations are advisory, not verified open/resolved status. Fresh reviews report earlier findings not confirmed in the current inspection separately as unverified. An exact historical anchor match in added lines is evidence of unchanged source context, not proof of an active defect; missing, ambiguous, skipped or unchecked anchors never establish resolution. Anchor matching is bounded to 10,000 candidate-line checks per run, uses existing keyed metadata and the reviewed diff, and makes no additional provider request. JSON includes the historical records and their evidence status; console output includes counts. Cached reviews do not infer historical omissions. Historical records do not affect current-finding quality gates. For unique exact historical anchors in reviewed C# added lines, narrow local lexical checks corroborate direct quoted credential assignments, inclusive-length loops and SQL string construction. JSON exposes patternEvidence (pattern-present, pattern-not-confirmed, not-checked); the console summarizes matching patterns. These advisory checks do not establish semantic correctness, increment detection counters, change lifecycle status or make additional provider requests. Unsupported categories, long lines and obvious comment lines are not checked. History alone still runs a fresh review; no automatic suppression. Existing JSON/annotated-diff/checkpoint exports are separate and may contain sensitive code or text. Direct quoted credential assignments in visible C#-style source are best-effort redacted from finding text, not a guarantee that all secrets are detected. Historical aliases for broad standard rules are reconciled only at matching source anchors and line locations with supporting code evidence; this may replace old advisory persistent IDs with their canonical ID, while legacy publication/checkpoint fingerprints are unchanged. Local history defaults on after consent through an existing key, an explicit CLI enable flag or trusted user configuration. A missing key or storage failure leaves the review unchanged.
+
+Fresh reviews require an added-line source reference from the current request. Validation rejects malformed, unknown or cross-file references; relocation drops the original fix and end range. A valid reference is not proof of semantic attribution. See [review output](review-output.md).
+
+### Targeted historical provider revalidation
+
+Use `smartwizz check --revalidate --verbose --json review.json` with local history enabled outside CI. This forces a fresh review and submits up to five unverified historical findings with unique exact anchors, highest severity first, in one additional logical provider request (retries and fallbacks may add HTTP requests). Each excerpt is limited to 4,000 characters and 17 visible lines. The configured provider receives source excerpts and opaque historical IDs; use only an authorized provider. Verdicts are advisory: supported, not-supported or inconclusive. They do not change lifecycle state, observations or quality gates and are not persisted in SQLite. Missing, duplicate or invalid verdicts are inconclusive. Additional timing and token metrics are available in JSON. The option is incompatible with --cache, --stateless and --no-remember.
+
+### Explicit finding resolution (local history)
+
+After independently verifying a correction, export a fresh report with `smartwizz check --no-cache --json review.json`. Obtain the full 64-character persistent finding ID from the current or historical finding metadata in the JSON report, then use:
+
+```sh
+smartwizz check --resolve-id "$FINDING_ID" --confirm-resolved
+```
+
+The operation records a human attestation, not automated proof of correction. It requires enabled local history outside CI and the matching checkout, review mode and policy scope. For staged history, also pass `--staged`. It does not run the provider, modify source code or change current-finding quality gates. Unknown IDs, shortened IDs and duplicate resolutions are rejected. Resolution and rediscovery events are recorded transactionally with the finding ID, HEAD revision and UTC timestamp. The local database audit is not tamper-evident and HEAD does not identify uncommitted working-tree contents. Run a fresh review with `--no-cache` after resolution; old cached metadata may still contain the historical detection. A fresh accepted detection of the same resolved identity becomes regressed. Missing detections never imply resolution.
+
+### Optional exact-input local review cache
+
+```bash
+smartwizz check --remember --cache --verbose --fail-on medium
+```
+
+The separate LocalApplicationData/smartwizz/data/review-cache-v1.db stores only signed, allowlisted metadata (file ordinal, line range, rule ID, severity, confidence, counters). It contains no file paths, source, diff, descriptions, fixes, prompts or raw responses. It uses the same separately held history key; an HMAC includes the exact diff, checkout, HEAD, mode, configuration/prompt/ruleset scope and build identity. Entries expire after 24 hours and expired rows are removed on eligible writes. Use `--no-cache` to invalidate the matching existing cache entry and force a fresh inspection. Changing a model behind an unchanged endpoint/model alias cannot be detected automatically; do not use cache for release or mandatory security gates requiring fresh inspection. A cache hit reproduces metadata only, not original explanations, rule provenance, timing or check-coverage statistics. It retains finding severity and quality-gate exit codes, looks up existing finding identities read-only without recording a second detection in history and reports how many LLM requests were avoided. A review with any rejected or skipped findings/files, fallback model, unsupported rule ID, or ambiguous legacy fingerprint is not cached. Only local check/staged mode is supported; PR review, publication, checkpoint and annotated diff workflows do not reuse the cache. A cache error falls back to a new inspection. Delete the cache database while SmartWizz is not running to clear it. The cache does not encrypt metadata at rest; restrict access and do not synchronize the file externally.
+
+### Local storage defaults
+
+After storage consent, `smartwizz check` and `smartwizz check --staged` enable history and the exact-input metadata cache by default. Consent is an existing history key, an explicit `--remember` / `--cache` flag, or an explicit setting in trusted user configuration:
+
+```json
+{
+  "storage": {
+    "remember": true,
+    "cache": true
+  }
+}
+```
+
+CLI overrides take precedence. `--no-cache` invalidates the matching cache entry when available and forces a fresh inspection, `--no-remember` prevents history writes, and `--stateless` disables both. CI (CI environment variable present) and PR reviews do not use local storage. Annotated diff output always requires a fresh review. Local --fail-on defaults to fresh unless caching is explicitly enabled. Implicit repository configuration cannot authorize storage initialization. Windows can initialize a random 32-byte history key using user-scoped DPAPI after explicit authorization. The encrypted key is stored separately in history-key.dpapi; an existing SMARTWIZZ_HISTORY_KEY takes precedence and is not automatically imported. On other platforms supply the key via a secure environment source. Without a usable key, fall back to a fresh review. The metadata databases themselves are not encrypted. Cache expiry remains fixed at 24 hours; configurable retention is future work.
