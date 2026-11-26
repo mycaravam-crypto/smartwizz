@@ -269,7 +269,9 @@ public class ReviewTests
         Assert.Equal(timing.Request, result.FindingRequests[finding.Fingerprint]);
         Assert.Equal(["deleted", "binary", "excluded"], result.SkippedFiles.Select(s => s.Reason));
         Assert.Contains("BEGIN-DIFF-", stub.Requests[0].Body);
-        Assert.Contains("F1-L12 |+", stub.Requests[0].Body);
+        using var requestBody = System.Text.Json.JsonDocument.Parse(stub.Requests[0].Body!);
+        string userMessage = requestBody.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!;
+        Assert.Contains("F1-L12 |+", userMessage);
         Assert.DoesNotContain("Added-line source references", stub.Requests[0].Body);
         Assert.Contains("- web/package-lock.json\\n", stub.Requests[0].Body); // listed for context (JSON-escaped newline)...
         Assert.DoesNotContain("File: web/package-lock.json", stub.Requests[0].Body); // ...but not sent
