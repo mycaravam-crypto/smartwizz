@@ -9,7 +9,7 @@ SmartWizz is standalone and separate from GitWizz (merge ordering / merge readin
 ## Principles
 
 - **YAGNI:** implement only what demonstrated product needs require.
-- Simple, deterministic code over abstractions. No interfaces with one implementation.
+- Simple, deterministic code over abstractions. Avoid speculative abstractions and interfaces without a demonstrated need.
 - Review logic independent of CI platform and AI provider (provider and publisher are plain classes taking an `HttpClient`).
 - All PR content is untrusted input.
 - Never auto-fix, approve, or merge.
@@ -38,7 +38,7 @@ SmartWizz is standalone and separate from GitWizz (merge ordering / merge readin
 
 ## Structure
 
-Flat — one file per concern, no subfolders until something needs them.
+Flat implementation organized by concern. The following is an illustrative subset, not a complete inventory.
 
 ```text
 src/SmartWizz/
