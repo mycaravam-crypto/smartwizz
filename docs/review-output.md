@@ -1,7 +1,5 @@
 # Review output and validation
 
-## Output
-
 When the model can express a fix within the reported lines, the console report shows it under the finding and the JSON includes it as `suggestedFix`. Suggestions are never applied.
 
 Console report plus, with `--json`:
@@ -24,7 +22,7 @@ Console report plus, with `--json`:
 - the file isn't in the reviewed diff (paths like `/x`, `./x`, `b/x`, `x\y` are normalized first),
 - `startLine` isn't a line this change **added** (unchanged context lines don't count),
 - `endLine` is before `startLine` or leaves the contiguous lines shown in that hunk,
-- or a field is missing or invalid.
+- or a field is missing or invalid, including a missing, malformed, unknown or cross-file source reference.
 
 Unparseable model output fails the run with exit 2 `[invalid-model-output]`.
 
